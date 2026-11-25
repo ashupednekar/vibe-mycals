@@ -122,3 +122,39 @@ on every push/merge to `main` (and on manual dispatch). Add these repository sec
 `android-apk.yml` builds a sideloadable APK with Expo Prebuild + Gradle and publishes it to the
 `mobile-latest` release. `mobile.yml` runs EAS builds and optional store submission. Run
 `npx eas init` once in `mobile/` to attach an Expo project before using EAS.
+
+## Releases & Expo setup
+
+Pushing a `v*` tag triggers **Deploy**, **Mobile (EAS)** for Android + iOS, and **Android APK**.
+Do the one-time Expo setup first, otherwise the EAS jobs fail:
+
+```bash
+cd mobile
+npm install -g eas-cli
+eas login                 # or export EXPO_TOKEN=... for CI
+eas init                  # creates the Expo project, writes extra.eas.projectId
+eas credentials           # create/upload Android keystore + iOS distribution cert
+```
+
+Then add the CI token:
+
+```bash
+gh secret set EXPO_TOKEN  # expo.dev → Account → Access Tokens
+```
+
+Build locally / for testers without stores:
+
+```bash
+eas build --platform android --profile preview   # APK
+eas build --platform all --profile production --auto-submit
+```
+
+Publish a release (after Expo setup + `CLOUDFLARE_API_TOKEN`):
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The Android APK workflow needs no Expo account: it builds with Expo Prebuild + Gradle and publishes
+`mycals.apk` to the `mobile-latest` GitHub release, which is what `site/index.html` links to.
