@@ -13,8 +13,8 @@ run_worker_first = ["/api/*"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "vibe-mycals"
-database_id = "d28378d5-a25e-44a8-90db-082b262176fb"
+database_name = "mycals"
+database_id = "9b90d726-b220-4a9e-846b-256541a9a8d7"
 
 [vars]
 DEMO_MODE = "1"
