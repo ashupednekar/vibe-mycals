@@ -1242,6 +1242,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "mycals-api"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "mycals-common",
+ "serde",
+ "serde_json",
+ "worker",
+ "worker-macros",
+]
+
+[[package]]
+name = "mycals-app"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "dioxus",
+ "dioxus-router",
+ "gloo-net",
+ "js-sys",
+ "mycals-common",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "mycals-common"
 version = "0.1.0"
 dependencies = [
@@ -1250,6 +1278,15 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "mycals-worker"
+version = "0.1.0"
+dependencies = [
+ "mycals-api",
+ "worker",
+ "worker-macros",
 ]
 
 [[package]]
@@ -2050,43 +2087,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vibe-mycals-api"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "mycals-common",
- "serde",
- "serde_json",
- "worker",
- "worker-macros",
-]
-
-[[package]]
-name = "vibe-mycals-app"
-version = "0.1.0"
-dependencies = [
- "base64",
- "dioxus",
- "dioxus-router",
- "gloo-net",
- "js-sys",
- "mycals-common",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "vibe-mycals-worker"
-version = "0.1.0"
-dependencies = [
- "vibe-mycals-api",
- "worker",
- "worker-macros",
-]
 
 [[package]]
 name = "walkdir"

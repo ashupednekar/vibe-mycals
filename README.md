@@ -39,7 +39,7 @@ GOOGLE_CLIENT_ID=...      # enables Google sign-in
 GOOGLE_CLIENT_SECRET=...
 ```
 
-D1: `vibe-mycals` (`wrangler d1 create vibe-mycals` if you fork this).
+D1: `mycals` (`wrangler d1 create mycals` if you fork this).
 
 ## Local development
 
@@ -62,7 +62,7 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 ```
 
-Apply migrations locally: `wrangler d1 migrations apply vibe-mycals --local`.
+Apply migrations locally: `wrangler d1 migrations apply mycals --local`.
 
 ## Mobile (Expo)
 

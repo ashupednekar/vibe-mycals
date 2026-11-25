@@ -17,15 +17,18 @@ fi
 
 # ---- web build -----------------------------------------------------------
 echo "▸ building Dioxus app"
+rm -rf target/dx
 (cd app && dx build --platform web --release)
 rm -rf app/dist
 mkdir -p app/dist
-cp -R target/dx/vibe-mycals-app/release/web/public/. app/dist/
+PUBLIC_DIR="$(find target/dx -path '*/release/web/public' -type d | head -1)"
+[ -n "$PUBLIC_DIR" ] || { echo "web build output not found"; exit 1; }
+cp -R "$PUBLIC_DIR"/. app/dist/
 echo "▸ web assets in app/dist"
 
 # ---- database ------------------------------------------------------------
 echo "▸ applying D1 migrations"
-printf 'y\n' | wrangler d1 migrations apply vibe-mycals --remote
+printf 'y\n' | wrangler d1 migrations apply mycals --remote
 
 # ---- worker secrets ------------------------------------------------------
 put_secret() {

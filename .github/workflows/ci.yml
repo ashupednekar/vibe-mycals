@@ -18,7 +18,7 @@ jobs:
       - name: Shared logic tests
         run: cargo test -p mycals-common
       - name: Clippy (wasm)
-        run: cargo clippy -p vibe-mycals-api -p vibe-mycals-app --target wasm32-unknown-unknown -- -D warnings
+        run: cargo clippy -p mycals-api -p mycals-app --target wasm32-unknown-unknown -- -D warnings
       - name: Install workers-rs build tool
         run: cargo install worker-build --version 0.9.0 --locked
       - name: Build Worker

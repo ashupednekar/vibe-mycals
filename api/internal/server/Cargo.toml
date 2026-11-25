@@ -1,5 +1,5 @@
 [package]
-name = "vibe-mycals-api"
+name = "mycals-api"
 version.workspace = true
 edition.workspace = true
 
