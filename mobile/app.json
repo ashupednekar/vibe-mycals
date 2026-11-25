@@ -22,7 +22,10 @@
     },
     "android": {
       "package": "app.mycals.mobile",
-      "permissions": ["CAMERA"],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#146b45",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -43,6 +46,12 @@
           "cameraPermission": "MyCals uses the camera to scan meals and nutrition labels."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8572622d-3c6f-42b7-a00e-7a2a30a137d5"
+      }
+    },
+    "owner": "ashupednekardev"
   }
 }
