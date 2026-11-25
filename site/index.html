@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MyCals — calories with your people</title>
+<meta name="description" content="A dead-simple calorie tracker built for families. Sign in with Google, scan meals with Gemini, and see how everyone is doing." />
+<meta name="theme-color" content="#146b45" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='18' fill='%23146b45'/><text x='32' y='45' font-size='38' text-anchor='middle' fill='%23d8f26b' font-family='Georgia'>m</text></svg>" />
+<style>
+  :root{
+    --bg:#f6f5f0; --ink:#17251c; --muted:#66736a; --green:#146b45; --dark:#0d3f2a;
+    --lime:#d8f26b; --line:#e3e2d8; --card:#fff;
+    --serif:"Iowan Old Style",Palatino,Georgia,serif;
+    --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.5;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  img{max-width:100%}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  header{position:sticky;top:0;z-index:20;background:rgba(246,245,240,.82);backdrop-filter:blur(14px);border-bottom:1px solid rgba(227,226,216,.7)}
+  .nav{display:flex;align-items:center;justify-content:space-between;height:70px}
+  .logo{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-size:22px}
+  .mark{width:38px;height:38px;border-radius:12px;background:var(--green);color:var(--lime);display:grid;place-items:center;font-size:26px;padding-bottom:4px}
+  .logo b{color:var(--green)}
+  .links{display:flex;align-items:center;gap:22px;font-size:14px;font-weight:600;color:var(--muted)}
+  .links a:hover{color:var(--ink)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;border-radius:999px;padding:13px 22px;font-weight:700;font-size:14px;transition:transform .15s,background .15s,box-shadow .15s}
+  .btn:hover{transform:translateY(-1px)}
+  .btn-dark{background:var(--dark);color:#fff}
+  .btn-green{background:var(--green);color:#fff;box-shadow:0 14px 30px -14px rgba(20,107,69,.8)}
+  .btn-ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
+  .btn-lime{background:var(--lime);color:#29360a}
+  .hero{padding:72px 0 48px;display:grid;grid-template-columns:1.05fr .95fr;gap:48px;align-items:center}
+  .eyebrow{color:var(--green);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+  h1{font-family:var(--serif);font-weight:500;font-size:clamp(46px,6vw,78px);line-height:.98;letter-spacing:-.035em;margin:14px 0 20px}
+  h1 em{font-style:italic;color:var(--green)}
+  .hero p{font-size:17px;color:var(--muted);max-width:46ch;margin:0 0 26px}
+  .cta{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .store-note{font-size:12px;color:var(--muted);margin-top:14px}
+  .badge{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:650;color:var(--muted)}
+  .phone-stage{position:relative;display:grid;place-items:center;padding:10px}
+  .phone-stage:before{content:"";position:absolute;inset:4% 2%;background:radial-gradient(circle at 60% 30%,#d8f26b55,transparent 62%),radial-gradient(circle at 30% 80%,#146b4522,transparent 55%);filter:blur(10px);border-radius:50%}
+  .phone{position:relative;width:302px;border-radius:46px;background:#15231b;padding:10px;box-shadow:0 45px 80px -40px rgba(13,63,42,.65);transform:rotate(-2deg)}
+  .screen{background:#f8f7f1;border-radius:38px;overflow:hidden;padding:20px 16px 16px;min-height:560px}
+  .notch{width:78px;height:20px;background:#15231b;border-radius:0 0 14px 14px;margin:-20px auto 12px}
+  .s-top{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-weight:600}
+  .s-title{font-family:var(--serif);font-size:26px;letter-spacing:-.02em;margin:6px 0 12px}
+  .ring-card{background:#fff;border:1px solid var(--line);border-radius:22px;padding:14px;text-align:center;box-shadow:0 10px 24px -18px rgba(23,37,28,.3)}
+  .ring{width:140px;height:140px;margin:2px auto;position:relative}
+  .ring svg{transform:rotate(-90deg)}
+  .ring-num{position:absolute;inset:0;display:grid;place-content:center;font-family:var(--serif);font-size:34px;letter-spacing:-.02em}
+  .ring-num small{display:block;font-family:var(--sans);font-size:10px;color:var(--muted);letter-spacing:0;margin-top:2px}
+  .meal{background:#fff;border:1px solid var(--line);border-radius:16px;padding:11px 13px;margin-top:9px;display:flex;align-items:center;gap:9px;font-size:12px}
+  .meal b{font-size:12.5px}
+  .meal span{color:var(--muted);margin-left:auto;font-variant-numeric:tabular-nums}
+  .meal .e{font-size:16px}
+  .avatar{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:800;background:#e9e7dc;color:#4b554d}
+  .float{position:absolute;background:#fff;border:1px solid var(--line);border-radius:16px;padding:11px 14px;box-shadow:0 20px 40px -24px rgba(23,37,28,.4);font-size:12px;font-weight:650;animation:float 6s ease-in-out infinite}
+  .float-a{right:-16px;top:18%}
+  .float-b{left:-22px;bottom:16%;animation-delay:-3s}
+  @keyframes float{50%{transform:translateY(-8px)}}
+  .float .sub{color:var(--muted);font-weight:500;font-size:11px}
+  section{padding:72px 0}
+  .section-head{max-width:620px;margin-bottom:30px}
+  .section-head h2{font-family:var(--serif);font-weight:500;font-size:clamp(30px,4vw,46px);line-height:1.05;letter-spacing:-.03em;margin:8px 0 10px}
+  .section-head p{color:var(--muted);font-size:16px;margin:0}
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:26px;box-shadow:0 14px 40px -30px rgba(23,37,28,.35)}
+  .card .icon{width:44px;height:44px;border-radius:14px;background:var(--green);color:var(--lime);display:grid;place-items:center;font-size:21px;margin-bottom:16px}
+  .card h3{font-family:var(--serif);font-weight:500;font-size:23px;margin:0 0 8px;letter-spacing:-.02em}
+  .card p{color:var(--muted);font-size:14px;margin:0}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:center}
+  .family-mock{background:#fff;border:1px solid var(--line);border-radius:28px;padding:22px;box-shadow:0 30px 70px -46px rgba(23,37,28,.5)}
+  .invite{background:linear-gradient(120deg,#fff,#f3f9e9);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:14px}
+  .invite small{display:block;color:var(--green);font-weight:800;letter-spacing:.1em;text-transform:uppercase;font-size:9px}
+  .invite .code{font-family:ui-monospace,Menlo,monospace;font-size:30px;font-weight:700;letter-spacing:.14em;color:var(--green)}
+  .member{display:flex;align-items:center;gap:11px;padding:12px 0;border-bottom:1px solid #f0efe8}
+  .member:last-child{border:0}
+  .member .who{font-size:13px;font-weight:700}
+  .member .sub{font-size:11px;color:var(--muted)}
+  .bar{margin-left:auto;width:112px;height:6px;background:#efeee7;border-radius:99px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--green);border-radius:99px}
+  .member .kcal{font-size:12px;font-weight:700;width:64px;text-align:right;font-variant-numeric:tabular-nums}
+  .list{display:flex;flex-direction:column;gap:12px;margin:22px 0 0;padding:0;list-style:none}
+  .list li{display:flex;gap:11px;align-items:flex-start;font-size:14px;color:var(--muted)}
+  .list b{color:var(--ink)}
+  .tick{width:22px;height:22px;border-radius:50%;background:#e3f2e8;color:var(--green);display:grid;place-items:center;font-size:12px;flex:0 0 auto;font-weight:800}
+  .download{background:var(--dark);color:#fff;border-radius:36px;padding:50px;display:grid;grid-template-columns:1.1fr .9fr;gap:34px;align-items:center;position:relative;overflow:hidden}
+  .download:after{content:"";position:absolute;width:380px;height:380px;border-radius:50%;background:var(--lime);opacity:.12;right:-100px;top:-140px}
+  .download h2{font-family:var(--serif);font-weight:500;font-size:clamp(30px,4vw,46px);line-height:1.03;letter-spacing:-.03em;margin:8px 0 12px}
+  .download p{color:#cfe0d5;font-size:15px;margin:0 0 20px;max-width:44ch}
+  .download .eyebrow{color:var(--lime)}
+  .dl-grid{display:flex;flex-direction:column;gap:10px}
+  .dl{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:16px;padding:14px 16px;transition:background .15s}
+  .dl:hover{background:rgba(255,255,255,.14)}
+  .dl .os{font-size:22px}
+  .dl b{display:block;font-size:14px}
+  .dl small{color:#b9cdc1;font-size:11px}
+  .dl .arrow{margin-left:auto;color:var(--lime)}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;counter-reset:step}
+  .step{padding:24px;border:1px solid var(--line);border-radius:22px;background:#fff}
+  .step:before{counter-increment:step;content:"0" counter(step);font-family:var(--serif);font-size:34px;color:#c9d4cc;display:block;margin-bottom:10px}
+  .step b{font-size:15px}
+  .step p{color:var(--muted);font-size:13px;margin:6px 0 0}
+  footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--muted);font-size:13px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  footer a:hover{color:var(--ink)}
+  @media(max-width:920px){
+    .hero{grid-template-columns:1fr;padding-top:48px;gap:24px}
+    .phone-stage{order:-1;transform:scale(.9)}
+    .features,.steps{grid-template-columns:1fr}
+    .split{grid-template-columns:1fr}
+    .download{grid-template-columns:1fr;padding:32px;border-radius:28px}
+    .links a:not(.btn){display:none}
+    section{padding:52px 0}
+  }
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <a class="logo" href="#"><span class="mark">m</span>my<b>cals</b></a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#family">Family</a>
+      <a href="#download">Download</a>
+      <a class="btn btn-ghost" href="__APP_URL__">Open web app</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <div>
+      <span class="eyebrow">Calorie tracking · family edition</span>
+      <h1>Count calories.<br>Not <em>secrets.</em></h1>
+      <p>One clean tracker for the whole family. Sign in with Google, log meals in a tap, scan a plate with Gemini — and see how everyone is doing today.</p>
+      <div class="cta">
+        <a class="btn btn-green" href="#download">Get the app</a>
+        <a class="btn btn-ghost" href="__APP_URL__">Try in browser →</a>
+      </div>
+      <div class="store-note">Free · Android, iOS &amp; web · demo mode needs no sign-up</div>
+      <div style="margin-top:22px;display:flex;gap:8px;flex-wrap:wrap">
+        <span class="badge">🔐 Google sign-in</span>
+        <span class="badge">👨‍👩‍👧 shared diaries</span>
+        <span class="badge">✨ Gemini scanning</span>
+      </div>
+    </div>
+    <div class="phone-stage">
+      <div class="float float-a">🔥 12 day streak <div class="sub">the family group chat is proud</div></div>
+      <div class="float float-b">📷 “chicken rice bowl” <div class="sub">560 kcal · added in 3s</div></div>
+      <div class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="s-top"><span>Monday</span><span>● ● ●</span></div>
+          <div class="s-title">Today</div>
+          <div class="ring-card">
+            <div class="ring">
+              <svg width="140" height="140" viewBox="0 0 140 140">
+                <circle cx="70" cy="70" r="56" fill="none" stroke="#efeee7" stroke-width="11"/>
+                <circle cx="70" cy="70" r="56" fill="none" stroke="#146b45" stroke-width="11" stroke-linecap="round" stroke-dasharray="246 352"/>
+              </svg>
+              <div class="ring-num">1,240<small>of 1,750 kcal</small></div>
+            </div>
+            <div style="font-size:11px;color:#146b45;font-weight:700">510 left today</div>
+          </div>
+          <div class="meal"><span class="e">🥣</span><b>Breakfast</b><span>310</span></div>
+          <div class="meal"><span class="e">🥗</span><b>Lunch</b><span>640</span></div>
+          <div class="meal"><span class="e">🍎</span><b>Snacks</b><span>290</span></div>
+          <div class="meal"><span class="e">📷</span><b style="color:#146b45">Scan food</b><span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">Everything, minus the noise</span>
+        <h2>Three things. Done well.</h2>
+        <p>No macro spreadsheets, no 40-step onboarding. Just today's calories and your people.</p>
+      </div>
+      <div class="features">
+        <div class="card">
+          <div class="icon">G</div>
+          <h3>One-tap Google sign-in</h3>
+          <p>No passwords to remember. Your Google profile becomes your diary, synced across web and mobile.</p>
+        </div>
+        <div class="card">
+          <div class="icon">👨‍👩‍👧</div>
+          <h3>Family calories, visible</h3>
+          <p>Create a family, share a six-character code, and see everyone's calorie day at a glance. Sharing is per-person and can be turned off.</p>
+        </div>
+        <div class="card">
+          <div class="icon">✨</div>
+          <h3>Point, scan, logged</h3>
+          <p>Photograph a plate or a label. Gemini estimates the dish and portion, and writes straight into today's diary.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="family" style="padding-top:0">
+    <div class="wrap split">
+      <div>
+        <span class="eyebrow">Family sharing</span>
+        <h2 style="font-family:var(--serif);font-weight:500;font-size:clamp(30px,4vw,46px);line-height:1.05;letter-spacing:-.03em;margin:8px 0 12px">“Did you log that?”<br>— your sister, probably.</h2>
+        <p style="color:var(--muted);font-size:16px">Tap a family member to see their meals and calories for the day. It's gentle accountability, not surveillance: everyone controls their own sharing switch.</p>
+        <ul class="list">
+          <li><span class="tick">✓</span><span><b>Create or join</b> a household with an invite code.</span></li>
+          <li><span class="tick">✓</span><span><b>Today at a glance</b> — calories logged vs. each person's goal.</span></li>
+          <li><span class="tick">✓</span><span><b>Private by default option</b> with a per-member sharing toggle.</span></li>
+        </ul>
+      </div>
+      <div class="family-mock">
+        <div class="invite">
+          <small>Invite code</small>
+          <div class="code">DEMO42</div>
+          <div style="font-size:11px;color:#66736a">Send this to your people. Up to 8 humans.</div>
+        </div>
+        <div class="member">
+          <div class="avatar" style="background:#e3f2e8;color:#146b45">A</div>
+          <div><div class="who">Alex <span style="font-size:8px;background:#e3f2e8;color:#146b45;padding:1px 5px;border-radius:99px">YOU</span></div><div class="sub">1,050 logged</div></div>
+          <div class="bar"><i style="width:60%"></i></div><div class="kcal">60%</div>
+        </div>
+        <div class="member">
+          <div class="avatar" style="background:#f3d9c7;color:#7c3e21">M</div>
+          <div><div class="who">Maya</div><div class="sub">790 logged</div></div>
+          <div class="bar"><i style="width:43%"></i></div><div class="kcal">43%</div>
+        </div>
+        <div class="member">
+          <div class="avatar" style="background:#d6e6f5;color:#23486a">S</div>
+          <div><div class="who">Sam</div><div class="sub">1,290 logged</div></div>
+          <div class="bar"><i style="width:50%"></i></div><div class="kcal">50%</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top:0">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">How it works</span>
+        <h2>From plate to logged in seconds.</h2>
+      </div>
+      <div class="steps">
+        <div class="step"><b>Sign in with Google</b><p>One tap. No password, no forms.</p></div>
+        <div class="step"><b>Scan or search</b><p>Photo of your plate, a barcode, or 60+ everyday foods.</p></div>
+        <div class="step"><b>Compare with family</b><p>See everyone's calorie day and keep each other on track.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="download" style="padding-top:0">
+    <div class="wrap">
+      <div class="download">
+        <div>
+          <span class="eyebrow">Get MyCals</span>
+          <h2>Your family's new food ritual.</h2>
+          <p>Native apps are built with Expo and published from GitHub Actions. The web app works everywhere, right now.</p>
+          <a class="btn btn-lime" href="__APP_URL__">Open the web app →</a>
+        </div>
+        <div class="dl-grid">
+          <a class="dl" href="https://github.com/ashupednekar/vibe-mycals/releases/latest/download/mycals.apk">
+            <span class="os">🤖</span>
+            <span><b>Android APK</b><small>Direct download · latest build</small></span>
+            <span class="arrow">↓</span>
+          </a>
+          <a class="dl" href="https://github.com/ashupednekar/vibe-mycals/releases">
+            <span class="os">🍎</span>
+            <span><b>iPhone / iPad</b><small>TestFlight via EAS — see releases</small></span>
+            <span class="arrow">→</span>
+          </a>
+          <a class="dl" href="__APP_URL__">
+            <span class="os">🌍</span>
+            <span><b>Web app</b><small>No install · works offline-ish</small></span>
+            <span class="arrow">→</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap" style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap">
+    <div>© 2026 MyCals · built with Rust + Dioxus on Cloudflare Workers</div>
+    <div style="display:flex;gap:18px">
+      <a href="https://github.com/ashupednekar/vibe-mycals">GitHub</a>
+      <a href="__APP_URL__">Web app</a>
+      <a href="#features">Features</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,24 @@
+name = "mycals"
+main = "api/cmd/worker/build/worker/shim.mjs"
+compatibility_date = "2025-09-01"
+
+[build]
+command = "cd api/cmd/worker && worker-build --release"
+
+[assets]
+directory = "./app/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "vibe-mycals"
+database_id = "d28378d5-a25e-44a8-90db-082b262176fb"
+
+[vars]
+DEMO_MODE = "1"
+GEMINI_MODEL = "gemini-2.5-flash"
+
+[observability]
+enabled = true

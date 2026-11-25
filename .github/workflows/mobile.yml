@@ -1,0 +1,40 @@
+name: Mobile (Expo / EAS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        options: [android, ios, all]
+        default: all
+      submit:
+        description: Submit to the stores after building
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm install -g eas-cli
+      - name: EAS build (and submit)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          PLATFORM="${{ github.event.inputs.platform || 'all' }}"
+          PROFILE="${{ github.ref_type == 'tag' && 'production' || 'preview' }}"
+          SUBMIT="${{ github.event.inputs.submit == 'true' && '--auto-submit' || '' }}"
+          eas build --platform "$PLATFORM" --profile "$PROFILE" --non-interactive $SUBMIT

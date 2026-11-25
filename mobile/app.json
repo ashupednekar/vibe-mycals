@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "MyCals",
+    "slug": "mycals",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "mycals",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#146b45",
+      "resizeMode": "contain",
+      "image": "./assets/splash-icon.png"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.mycals.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "MyCals uses the camera to scan meals and nutrition labels.",
+        "NSPhotoLibraryUsageDescription": "MyCals lets you scan a meal photo from your library."
+      }
+    },
+    "android": {
+      "package": "app.mycals.mobile",
+      "permissions": ["CAMERA"],
+      "adaptiveIcon": {
+        "backgroundColor": "#146b45",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MyCals lets you scan a meal photo from your library.",
+          "cameraPermission": "MyCals uses the camera to scan meals and nutrition labels."
+        }
+      ]
+    ]
+  }
+}

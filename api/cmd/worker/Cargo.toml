@@ -1,0 +1,12 @@
+[package]
+name = "vibe-mycals-worker"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = { version = "0.9", features = ["d1"] }
+worker-macros = "0.9"
+vibe-mycals-api = { path = "../../internal/server" }

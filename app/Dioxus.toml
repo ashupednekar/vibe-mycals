@@ -1,0 +1,9 @@
+[application]
+name = "vibe-mycals"
+
+[web.app]
+title = "MyCals — calories with your people"
+
+[web.watcher]
+reload_html = true
+watch_path = ["src", "assets"]
