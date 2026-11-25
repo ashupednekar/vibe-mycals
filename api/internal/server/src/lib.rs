@@ -738,8 +738,7 @@ async fn scan_food(req: &mut Request, env: &Env) -> Result<Response> {
         }
     });
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
-        key.to_string()
+        "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
     );
     let text = post_text(&url, &body.to_string(), "application/json", None).await?;
     let v: Value = serde_json::from_str(&text).unwrap_or_default();
@@ -1122,7 +1121,7 @@ async fn today(db: &D1Database) -> Result<String> {
 async fn all<T: DeserializeOwned>(db: &D1Database, sql: &str, binds: Vec<JsValue>) -> Result<Vec<T>> {
     let stmt = db.prepare(sql);
     let stmt = if binds.is_empty() { stmt } else { stmt.bind(&binds)? };
-    Ok(stmt.all().await?.results::<T>()?)
+    stmt.all().await?.results::<T>()
 }
 
 async fn one<T: DeserializeOwned>(db: &D1Database, sql: &str, binds: Vec<JsValue>) -> Result<Option<T>> {
@@ -1148,7 +1147,7 @@ async fn post_text(url: &str, body: &str, content_type: &str, token: Option<&str
         req.headers_mut()?.set("authorization", &format!("Bearer {t}"))?;
     }
     let mut res = Fetch::Request(req).send().await?;
-    Ok(res.text().await?)
+    res.text().await
 }
 
 async fn get_text(url: &str, token: Option<&str>) -> Result<String> {
@@ -1157,5 +1156,5 @@ async fn get_text(url: &str, token: Option<&str>) -> Result<String> {
         req.headers_mut()?.set("authorization", &format!("Bearer {t}"))?;
     }
     let mut res = Fetch::Request(req).send().await?;
-    Ok(res.text().await?)
+    res.text().await
 }

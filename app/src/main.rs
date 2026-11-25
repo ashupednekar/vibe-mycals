@@ -77,6 +77,7 @@ impl AppState {
 // ------------------------------------------------------------------ routes
 
 #[derive(Routable, Clone, PartialEq, Debug)]
+#[allow(unreachable_code)]
 #[rustfmt::skip]
 enum Route {
     #[layout(Shell)]
@@ -361,12 +362,12 @@ fn Shell() -> Element {
     };
 
     let nav = |route: Route, label: &'static str, icon: &'static str| {
-        let active = match (&route, &current) {
-            (Route::Today {}, Route::Today {}) => true,
-            (Route::Family {}, Route::Family {}) => true,
-            (Route::Profile {}, Route::Profile {}) => true,
-            _ => false,
-        };
+        let active = matches!(
+            (&route, &current),
+            (Route::Today {}, Route::Today {})
+                | (Route::Family {}, Route::Family {})
+                | (Route::Profile {}, Route::Profile {})
+        );
         rsx! {
             Link {
                 to: route,
