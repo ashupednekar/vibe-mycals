@@ -40,7 +40,10 @@ jobs:
       - name: Decide platform
         id: gate
         run: |
-          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.platform }}" = "all" ] || [ "${{ inputs.platform }}" = "${{ matrix.platform }}" ]; then
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Tags build Android in EAS; iOS is installed from Xcode locally.
+            if [ "${{ matrix.platform }}" = "android" ]; then echo "go=true" >> "$GITHUB_OUTPUT"; else echo "go=false" >> "$GITHUB_OUTPUT"; fi
+          elif [ "${{ inputs.platform }}" = "all" ] || [ "${{ inputs.platform }}" = "${{ matrix.platform }}" ]; then
             echo "go=true" >> "$GITHUB_OUTPUT"
           else
             echo "go=false" >> "$GITHUB_OUTPUT"
