@@ -30,6 +30,8 @@ jobs:
         run: npm ci
       - name: Expo prebuild
         working-directory: mobile
+        env:
+          EXPO_PUBLIC_API_URL: ${{ vars.APP_URL || 'https://mycals.ashupednekar49.workers.dev' }}
         run: npx expo prebuild --platform android --no-install
       - name: Gradle assemble release
         working-directory: mobile/android

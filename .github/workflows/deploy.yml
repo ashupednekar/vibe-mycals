@@ -9,8 +9,13 @@ concurrency:
   group: production
   cancel-in-progress: true
 
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
 jobs:
-  deploy:
+  # ---- build stages run in parallel -------------------------------------
+  web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,20 +23,120 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      - name: Install Dioxus CLI
+        run: cargo install dioxus-cli --version 0.7.10 --locked
+      - name: Build Dioxus app
+        run: |
+          cd app
+          dx build --platform web --release
+          cd ..
+          rm -rf app/dist
+          mkdir -p app/dist
+          PUBLIC_DIR="$(find target/dx -path '*/release/web/public' -type d | head -1)"
+          cp -R "$PUBLIC_DIR"/. app/dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: app/dist
+          if-no-files-found: error
+
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install workers-rs build tool
+        run: cargo install worker-build --version 0.9.0 --locked
+      - name: Build Worker
+        run: cd api/cmd/worker && worker-build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worker-build
+          path: api/cmd/worker/build
+          if-no-files-found: error
+
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install tooling
-        run: |
-          cargo install worker-build --version 0.9.0 --locked
-          cargo install dioxus-cli --version 0.7.10 --locked
-          npm install -g wrangler@4
-      - name: Deploy Worker, app and landing page
+      - run: npm install -g wrangler@4
+      - name: Apply D1 migrations
+        run: printf 'y\n' | wrangler d1 migrations apply mycals --remote
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g wrangler@4
+      - name: Sync Worker secrets
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-        run: ./deploy.sh
+        run: |
+          set -euo pipefail
+          for name in SESSION_SECRET GEMINI_API_KEY GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
+            value="${!name:-}"
+            if [ -n "$value" ]; then
+              printf '%s' "$value" | wrangler secret put "$name" >/dev/null
+              echo "set $name"
+            else
+              echo "skip $name (not set)"
+            fi
+          done
+
+  site:
+    # Independent of the API build; runs in parallel with everything above.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g wrangler@4
+      - name: Publish landing page
+        env:
+          APP_URL: ${{ vars.APP_URL || 'https://mycals.ashupednekar49.workers.dev' }}
+        run: |
+          set -euo pipefail
+          DIR="$(mktemp -d)"
+          cp -R site/. "$DIR"/
+          python3 - "$DIR/index.html" "$APP_URL" <<'PY'
+          import sys
+          path, url = sys.argv[1], sys.argv[2]
+          open(path, "w").write(open(path).read().replace("__APP_URL__", url))
+          PY
+          wrangler pages project create mycals --production-branch=main >/dev/null 2>&1 || true
+          wrangler pages deploy "$DIR" --project-name=mycals --branch=main --commit-dirty=true
+
+  deploy:
+    needs: [web, worker, migrate, secrets]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g wrangler@4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: app/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: worker-build
+          path: api/cmd/worker/build
+      - name: Deploy Worker
+        run: wrangler deploy
+      - name: Summary
+        run: echo "Deployed https://mycals.ashupednekar49.workers.dev"

@@ -15,8 +15,16 @@ on:
   push:
     tags: ["v*"]
 
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [android, ios]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -29,12 +37,23 @@ jobs:
           cache: npm
           cache-dependency-path: mobile/package-lock.json
       - run: npm ci
-      - run: npm install -g eas-cli
-      - name: EAS build (and submit)
+      - name: Decide platform
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.platform }}" = "all" ] || [ "${{ inputs.platform }}" = "${{ matrix.platform }}" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install EAS CLI
+        if: steps.gate.outputs.go == 'true'
+        run: npm install -g eas-cli
+      - name: EAS build
+        if: steps.gate.outputs.go == 'true'
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_API_URL: ${{ vars.APP_URL || 'https://mycals.ashupednekar49.workers.dev' }}
         run: |
-          PLATFORM="${{ github.event.inputs.platform || 'all' }}"
           PROFILE="${{ github.ref_type == 'tag' && 'production' || 'preview' }}"
-          SUBMIT="${{ github.event.inputs.submit == 'true' && '--auto-submit' || '' }}"
-          eas build --platform "$PLATFORM" --profile "$PROFILE" --non-interactive $SUBMIT
+          SUBMIT="${{ inputs.submit && '--auto-submit' || '' }}"
+          eas build --platform "${{ matrix.platform }}" --profile "$PROFILE" --non-interactive $SUBMIT

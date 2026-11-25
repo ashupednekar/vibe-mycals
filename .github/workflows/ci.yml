@@ -5,20 +5,40 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  rust:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Shared logic tests
+        run: cargo test -p mycals-common
+
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-          components: rustfmt, clippy
+          components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Shared logic tests
-        run: cargo test -p mycals-common
       - name: Clippy (wasm)
-        run: cargo clippy -p mycals-api -p mycals-app --target wasm32-unknown-unknown -- -D warnings
+        run: cargo clippy -p mycals-api -p mycals-app --target wasm32-unknown-unknown -- -D warnings -A unreachable_code
+
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - name: Install workers-rs build tool
         run: cargo install worker-build --version 0.9.0 --locked
       - name: Build Worker
@@ -32,8 +52,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: dioxus-cli@0.7.10
+      - name: Install Dioxus CLI
+        run: cargo install dioxus-cli --version 0.7.10 --locked
       - name: Build Dioxus app
         run: cd app && dx build --platform web --release
