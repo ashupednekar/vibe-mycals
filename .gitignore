@@ -11,3 +11,5 @@ node_modules
 /mobile/dist
 .DS_Store
 *.log
+mobile/credentials/
+mobile/credentials.json

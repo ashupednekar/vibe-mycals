@@ -48,12 +48,41 @@ jobs:
       - name: Install EAS CLI
         if: steps.gate.outputs.go == 'true'
         run: npm install -g eas-cli
+      - name: Resolve build profile
+        id: profile
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            if [ "${{ matrix.platform }}" = "android" ]; then echo "name=android-production" >> "$GITHUB_OUTPUT"; else echo "name=production" >> "$GITHUB_OUTPUT"; fi
+          else
+            if [ "${{ matrix.platform }}" = "android" ]; then echo "name=android-preview" >> "$GITHUB_OUTPUT"; else echo "name=preview" >> "$GITHUB_OUTPUT"; fi
+          fi
+      - name: Materialize Android signing credentials
+        if: matrix.platform == 'android' && steps.gate.outputs.go == 'true'
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_B64" || { echo "ANDROID_KEYSTORE_BASE64 is not set"; exit 1; }
+          mkdir -p credentials
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > credentials/android-keystore.jks
+          python3 - <<'PY'
+          import json, os
+          json.dump({"android": {"keystore": {
+              "keystorePath": "credentials/android-keystore.jks",
+              "keystorePassword": os.environ["STORE_PASSWORD"],
+              "keyAlias": os.environ["KEY_ALIAS"],
+              "keyPassword": os.environ["KEY_PASSWORD"],
+          }}}, open("credentials.json", "w"))
+          PY
       - name: EAS build
         if: steps.gate.outputs.go == 'true'
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_API_URL: ${{ vars.APP_URL || 'https://mycals.ashupednekar49.workers.dev' }}
         run: |
-          PROFILE="${{ github.ref_type == 'tag' && 'production' || 'preview' }}"
           SUBMIT="${{ inputs.submit && '--auto-submit' || '' }}"
-          eas build --platform "${{ matrix.platform }}" --profile "$PROFILE" --non-interactive $SUBMIT
+          eas build --platform "${{ matrix.platform }}" --profile "${{ steps.profile.outputs.name }}" --non-interactive $SUBMIT

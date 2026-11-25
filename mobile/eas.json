@@ -19,6 +19,20 @@
     },
     "production": {
       "autoIncrement": true
+    },
+    "android-preview": {
+      "distribution": "internal",
+      "credentialsSource": "local",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "android-production": {
+      "credentialsSource": "local",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
   },
   "submit": {

@@ -158,3 +158,24 @@ git push origin v0.1.0
 
 The Android APK workflow needs no Expo account: it builds with Expo Prebuild + Gradle and publishes
 `mycals.apk` to the `mobile-latest` GitHub release, which is what `site/index.html` links to.
+
+### Mobile signing
+
+Android EAS builds use a **local keystore** (`credentialsSource: local`) so CI does not depend on
+interactive credential prompts. The following repository secrets are used:
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | base64 of `mobile/credentials/android-keystore.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+| `ANDROID_KEY_ALIAS` | `mycals` |
+| `ANDROID_KEY_PASSWORD` | key password |
+
+The keystore and `credentials.json` are gitignored; keep a backup somewhere safe (losing it means
+Play Store updates can no longer be signed). iOS uses EAS-managed credentials: run
+`cd mobile && eas credentials -p ios` once and let EAS create the distribution certificate and
+provisioning profile with your Apple account. Store submission additionally needs a Google Play
+service account (`eas submit -p android`) and an App Store Connect app record.
+
+Build profiles: `android-preview` / `android-production` (local keystore), `preview` / `production`
+(iOS, EAS-managed).
