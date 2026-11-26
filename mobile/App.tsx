@@ -9,10 +9,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
@@ -304,6 +306,50 @@ function Progress({ value, tone = C.green }: { value: number; tone?: string }) {
   return (
     <View style={s.track}>
       <View style={[s.fill, { width: `${Math.min(100, Math.max(0, value))}%` as any, backgroundColor: tone }]} />
+    </View>
+  );
+}
+
+function SwipeRow({ children, onDelete }: { children: React.ReactNode; onDelete: () => void }) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderMove: (_, g) => {
+        if (g.dx < 0) translateX.setValue(Math.max(g.dx, -150));
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dx < -90) {
+          Animated.timing(translateX, {
+            toValue: -450,
+            duration: 160,
+            useNativeDriver: true,
+          }).start(() => onDelete());
+        } else {
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+        }
+      },
+    })
+  ).current;
+  return (
+    <View style={{ borderRadius: 20, overflow: "hidden", backgroundColor: C.coral }}>
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0,
+          alignItems: "flex-end",
+          justifyContent: "center",
+          paddingRight: 20,
+        }}
+      >
+        <Ionicons name="trash-outline" size={22} color="#fff" />
+      </View>
+      <Animated.View style={{ transform: [{ translateX }] }} {...pan.panHandlers}>
+        {children}
+      </Animated.View>
     </View>
   );
 }
@@ -1040,6 +1086,16 @@ function Scan({ token, onDone }: { token: string; onDone: () => void }) {
     setBusy(false);
   };
 
+  const deleteScan = async (id: string) => {
+    try {
+      await request(`/api/scans/${id}`, token, { method: "DELETE", body: "{}" });
+      setHistory((h) => h.filter((s) => s.id !== id));
+      if (result?.scan_id === id) setResult(null);
+    } catch (e) {
+      setError(msg(e));
+    }
+  };
+
   const refine = async () => {
     if (!result || !correction.trim()) return;
     setRefining(true);
@@ -1198,20 +1254,21 @@ function Scan({ token, onDone }: { token: string; onDone: () => void }) {
       {history.length > 0 && (
         <View style={{ gap: 10, marginTop: 4 }}>
           <Text style={s.cardTitle}>Recent scans</Text>
+          <Text style={s.tiny}>Swipe a scan left to delete it.</Text>
           {history.slice(0, 8).map((h) => (
-            <Pressable
-              key={h.id}
-              style={[s.card, { flexDirection: "row", alignItems: "center", gap: 10, padding: 10 }]}
-              onPress={() =>
-                setResult({
-                  scan_id: h.id,
-                  name: h.name,
-                  description: h.description,
-                  items: h.items,
-                  confidence: h.confidence,
-                })
-              }
-            >
+            <SwipeRow key={h.id} onDelete={() => deleteScan(h.id)}>
+              <Pressable
+                style={[s.card, { flexDirection: "row", alignItems: "center", gap: 10, padding: 10 }]}
+                onPress={() =>
+                  setResult({
+                    scan_id: h.id,
+                    name: h.name,
+                    description: h.description,
+                    items: h.items,
+                    confidence: h.confidence,
+                  })
+                }
+              >
               {h.image_url ? (
                 <Image
                   source={{
@@ -1230,7 +1287,8 @@ function Scan({ token, onDone }: { token: string; onDone: () => void }) {
                   {Math.round(h.kcal)} kcal · {h.created_at.slice(0, 10)}
                 </Text>
               </View>
-            </Pressable>
+              </Pressable>
+            </SwipeRow>
           ))}
         </View>
       )}

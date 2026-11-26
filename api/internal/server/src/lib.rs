@@ -87,6 +87,10 @@ async fn dispatch(mut req: Request, env: Env) -> Result<Response> {
         let code = path.trim_start_matches("/api/foods/barcode/").to_string();
         return barcode_lookup(&env, &code).await;
     }
+    if method == "DELETE" && path.starts_with("/api/scans/") && !path.ends_with("/image") {
+        let id = path.trim_start_matches("/api/scans/").to_string();
+        return delete_scan(&req, &env, &id).await;
+    }
     if method == "GET" && path.starts_with("/api/scans/") && path.ends_with("/image") {
         let id = path
             .trim_start_matches("/api/scans/")
@@ -893,6 +897,33 @@ async fn list_scans(req: &Request, env: &Env) -> Result<Response> {
         })
         .collect();
     json(&scans, 200)
+}
+
+async fn delete_scan(req: &Request, env: &Env, id: &str) -> Result<Response> {
+    let Some(user) = current_user(req, env).await? else {
+        return Ok(err(401, "Sign in to continue"));
+    };
+    let db = env.d1("DB")?;
+    #[derive(Deserialize)]
+    struct Row {
+        image_key: Option<String>,
+    }
+    let row: Option<Row> = one(
+        &db,
+        "SELECT image_key FROM scans WHERE id=?1 AND user_id=?2",
+        vec![js(id), js(&user.id)],
+    )
+    .await?;
+    let Some(row) = row else {
+        return Ok(err(404, "Scan not found"));
+    };
+    exec(&db, "DELETE FROM scans WHERE id=?1 AND user_id=?2", vec![js(id), js(&user.id)]).await?;
+    if let Some(key) = row.image_key {
+        if let Ok(bucket) = env.bucket("SCANS") {
+            let _ = bucket.delete(key).await;
+        }
+    }
+    Ok(json_msg("deleted", 200))
 }
 
 async fn scan_image(req: &Request, env: &Env, id: &str) -> Result<Response> {
