@@ -13,3 +13,4 @@ node_modules
 *.log
 mobile/credentials/
 mobile/credentials.json
+.wrangler/

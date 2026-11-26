@@ -73,4 +73,4 @@ echo "  app:     $APP_URL"
 echo "  landing: https://mycals.pages.dev"
 echo
 echo "Next, optional: add GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GEMINI_API_KEY"
-echo "to .secrets.local, then rerun ./deploy.sh. Demo mode works without them."
+echo "to .secrets.local, then rerun ./deploy.sh to enable Google sign-in and scanning."

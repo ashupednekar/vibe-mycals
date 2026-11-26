@@ -8,7 +8,6 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -316,22 +315,35 @@ export default function App() {
     setUser(me);
   };
 
-  const completeAuthUrl = async (url: string) => {
-    const codeMatch = /[?&]code=([^&]+)/.exec(url);
-    if (codeMatch?.[1]) {
-      const res = await request<AuthResponse>("/api/auth/mobile/exchange", null, {
-        method: "POST",
-        body: JSON.stringify({ code: decodeURIComponent(codeMatch[1]).trim() }),
-      });
-      await signIn(res.token);
-      return;
+  const startGoogle = async () => {
+    await SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
+    const attempt = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    const result = await WebBrowser.openAuthSessionAsync(
+      `${API}/api/auth/google/start?mobile=1&attempt=${attempt}`,
+      APP_SCHEME
+    );
+    const waitMs = result.type === "success" || result.type === "opened" ? 30000 : 4000;
+    const deadline = Date.now() + waitMs;
+    while (Date.now() < deadline) {
+      const pending = await request<{ code: string | null }>(
+        `/api/auth/mobile/pending?attempt=${encodeURIComponent(attempt)}`,
+        null
+      );
+      if (pending.code) {
+        const res = await request<AuthResponse>("/api/auth/mobile/exchange", null, {
+          method: "POST",
+          body: JSON.stringify({ code: pending.code }),
+        });
+        await signIn(res.token);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 800));
     }
-    const tokenMatch = /[?&]token=([^&]+)/.exec(url);
-    if (tokenMatch?.[1]) {
-      await signIn(decodeURIComponent(tokenMatch[1]).trim());
-      return;
-    }
-    throw new Error("Sign-in did not return a session");
+    throw new Error(
+      result.type === "success" || result.type === "opened"
+        ? "Sign-in timed out. Try again."
+        : `Sign-in did not complete (${result.type}). Try again.`
+    );
   };
 
   const signOut = async () => {
@@ -339,19 +351,6 @@ export default function App() {
     setToken(null);
     setUser(null);
   };
-
-  // Handles the mycals://auth?token=... deep link even if iOS opens the app
-  // externally instead of returning through ASWebAuthenticationSession.
-  useEffect(() => {
-    const handle = ({ url }: { url: string }) => {
-      completeAuthUrl(url).catch(() => {});
-    };
-    const sub = Linking.addEventListener("url", handle);
-    Linking.getInitialURL().then((url) => {
-      if (url) handle({ url });
-    }).catch(() => {});
-    return () => sub.remove();
-  }, []);
 
   if (booting) {
     return (
@@ -369,7 +368,7 @@ export default function App() {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <StatusBar style="dark" />
       {!token || !user ? (
-        <Login onSignedIn={signIn} onAuthUrl={completeAuthUrl} />
+        <Login onGoogle={startGoogle} />
       ) : !user.onboarded ? (
         <Onboarding token={token} onDone={setUser} />
       ) : (
@@ -381,7 +380,7 @@ export default function App() {
 
 // ------------------------------------------------------------------ login
 
-function Login({ onSignedIn, onAuthUrl }: { onSignedIn: (token: string) => Promise<void>; onAuthUrl: (url: string) => Promise<void> }) {
+function Login({ onGoogle }: { onGoogle: () => Promise<void> }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -389,32 +388,7 @@ function Login({ onSignedIn, onAuthUrl }: { onSignedIn: (token: string) => Promi
     setError("");
     setBusy(true);
     try {
-      // Drop any stale local session before a fresh Google attempt.
-      await SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
-      const result = await WebBrowser.openAuthSessionAsync(
-        `${API}/api/auth/google/start?mobile=1`,
-        APP_SCHEME
-      );
-      if (result.type === "success") {
-        await onAuthUrl(result.url);
-      } else {
-        setError(`Sign-in did not complete (${result.type}). Try again.`);
-      }
-    } catch (e) {
-      setError(msg(e));
-    }
-    setBusy(false);
-  };
-
-  const demo = async () => {
-    setError("");
-    setBusy(true);
-    try {
-      const res = await request<{ token: string }>("/api/dev/login", null, {
-        method: "POST",
-        body: "{}",
-      });
-      await onSignedIn(res.token);
+      await onGoogle();
     } catch (e) {
       setError(msg(e));
     }
@@ -433,11 +407,11 @@ function Login({ onSignedIn, onAuthUrl }: { onSignedIn: (token: string) => Promi
           </Text>
         </View>
         <Text style={s.h1}>
-          Count calories.{"\n"}Not <Text style={{ color: C.green, fontStyle: "italic" }}>secrets.</Text>
+          Count calories.{"\n"}No <Text style={{ color: C.green, fontStyle: "italic" }}>nonsense.</Text>
         </Text>
         <Text style={s.lede}>
-          A calorie tracker for the whole family. Log meals in a tap, scan a plate with Gemini, and
-          see how everyone is doing today.
+          A no-nonsense calorie tracker for the whole family. Log a meal in a tap, scan a plate with
+          Gemini, and see how everyone is doing.
         </Text>
         <View style={s.chips}>
           {["🔐 Google sign-in", "👨‍👩‍👧 family diary", "✨ Gemini scan"].map((t) => (
@@ -447,9 +421,12 @@ function Login({ onSignedIn, onAuthUrl }: { onSignedIn: (token: string) => Promi
           ))}
         </View>
         <View style={{ gap: 10, marginTop: 6 }}>
-          <Btn label="Continue with Google" onPress={google} variant="outline" disabled={busy} />
-          <Btn label={busy ? "Working…" : "Try the demo"} onPress={demo} disabled={busy} />
-          <Text style={[s.tiny, { textAlign: "center" }]}>Demo mode · no sign-up needed</Text>
+          <Btn
+            label={busy ? "Opening Google…" : "Continue with Google"}
+            onPress={google}
+            variant="outline"
+            disabled={busy}
+          />
         </View>
         <Banner text={error} />
         <Pressable
@@ -1332,6 +1309,8 @@ function You({
   onSignOut: () => void;
 }) {
   const [share, setShare] = useState(user.share_diary);
+  const [target, setTarget] = useState(String(user.calorie_target));
+  const [savingTarget, setSavingTarget] = useState(false);
   const [error, setError] = useState("");
 
   const toggle = async () => {
@@ -1349,6 +1328,26 @@ function You({
     }
   };
 
+  const saveTarget = async () => {
+    const n = Number(target);
+    if (!Number.isFinite(n) || n < 800 || n > 6000) {
+      setError("Calorie target must be between 800 and 6000.");
+      return;
+    }
+    setSavingTarget(true);
+    setError("");
+    try {
+      const u = await request<User>("/api/profile", token, {
+        method: "PUT",
+        body: JSON.stringify({ calorie_target: n }),
+      });
+      onUser(u);
+    } catch (e) {
+      setError(msg(e));
+    }
+    setSavingTarget(false);
+  };
+
   return (
     <ScrollView contentContainerStyle={s.page}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
@@ -1364,8 +1363,25 @@ function You({
         <Text style={s.cardTitle}>Daily calorie target</Text>
         <Text style={s.calBig}>{user.calorie_target}</Text>
         <Text style={s.mutedSmall}>
-          Auto-calculated from your body stats and goal. Change it by editing your profile.
+          Set your own target, or leave the auto-calculated one from onboarding.
         </Text>
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8, marginTop: 10 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.fieldLabel}>Calories / day</Text>
+            <TextInput
+              value={target}
+              onChangeText={setTarget}
+              keyboardType="numeric"
+              style={s.input}
+            />
+          </View>
+          <Btn
+            label={savingTarget ? "Saving…" : "Save"}
+            onPress={saveTarget}
+            disabled={savingTarget}
+            small
+          />
+        </View>
       </View>
 
       <Pressable onPress={toggle} style={[s.card, { flexDirection: "row", alignItems: "center", gap: 12 }]}>

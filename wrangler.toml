@@ -14,7 +14,6 @@ database_name = "mycals"
 database_id = "9b90d726-b220-4a9e-846b-256541a9a8d7"
 
 [vars]
-DEMO_MODE = "1"
 GEMINI_MODEL = "gemini-2.5-flash"
 
 [observability]

@@ -182,21 +182,6 @@ fn Login() -> Element {
             notice.set("Google sign-in needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET set as Worker secrets.".into());
         }
     };
-    let demo = move |_| {
-        spawn(async move {
-            match api_send::<serde_json::Value, AuthResponse>(
-                "POST",
-                "/api/dev/login",
-                &serde_json::json!({}),
-            )
-            .await
-            {
-                Ok(a) => state.set_user(Some(a.user)),
-                Err(e) => notice.set(e),
-            }
-        });
-    };
-
     rsx! {
         div { class: "login-page",
             div { class: "login-art",
@@ -221,7 +206,7 @@ fn Login() -> Element {
             }
             div { class: "login-panel",
                 Logo {}
-                h1 { "Good food, " span { "together." } }
+                h1 { "Calories, " span { "without the noise." } }
                 p { class: "lede",
                     "Track your calories in seconds, see how your family is doing, and keep each other honest — all in one clean little app."
                 }
@@ -229,12 +214,6 @@ fn Login() -> Element {
                     button { class: "btn btn-google", onclick: google,
                         span { class: "g-badge", "G" }
                         "Continue with Google"
-                    }
-                    if (state.config)().demo {
-                        button { class: "btn btn-primary", onclick: demo,
-                            "Try the live demo"
-                        }
-                        p { class: "fineprint", "Demo mode · no sign-up needed" }
                     }
                 }
                 if !notice().is_empty() {
@@ -273,6 +252,7 @@ fn Onboarding() -> Element {
             weight_kg: weight().parse().ok(),
             activity: Some(activity()),
             goal: Some(goal()),
+            calorie_target: None,
             share_diary: Some(true),
             units: None,
             onboarded: Some(true),
@@ -1220,6 +1200,7 @@ fn Profile() -> Element {
     let mut weight = use_signal(|| user.weight_kg.unwrap_or(70.0).to_string());
     let mut activity = use_signal(|| user.activity.clone());
     let mut goal = use_signal(|| user.goal.clone());
+    let mut calorie_target = use_signal(|| user.calorie_target.to_string());
     let mut share = use_signal(|| user.share_diary);
     let mut saved = use_signal(String::new);
     let mut error = use_signal(String::new);
@@ -1233,6 +1214,7 @@ fn Profile() -> Element {
             weight_kg: weight().parse().ok(),
             activity: Some(activity()),
             goal: Some(goal()),
+            calorie_target: calorie_target().parse().ok(),
             share_diary: Some(share()),
             units: None,
             onboarded: Some(true),
@@ -1249,7 +1231,7 @@ fn Profile() -> Element {
         share.set(next);
         let inputs = ProfileInput {
             name: None, sex: None, birth_year: None, height_cm: None, weight_kg: None,
-            activity: None, goal: None, share_diary: Some(next), units: None, onboarded: None,
+            activity: None, goal: None, calorie_target: None, share_diary: Some(next), units: None, onboarded: None,
         };
         spawn(async move {
             match api_send::<ProfileInput, User>("PUT", "/api/profile", &inputs).await {
@@ -1306,6 +1288,9 @@ fn Profile() -> Element {
                                 option { value: "active", "Very active" }
                             }
                         }
+                        label { class: "full", "Daily calorie target"
+                            input { r#type: "number", value: "{calorie_target}", oninput: move |e| calorie_target.set(e.value()) }
+                        }
                         label { class: "full", "Goal"
                             div { class: "segmented",
                                 for (value, label) in [("lose", "Lose"), ("maintain", "Maintain"), ("gain", "Gain")] {
@@ -1326,7 +1311,7 @@ fn Profile() -> Element {
                 }
                 div { class: "profile-side",
                     section { class: "card targets-card",
-                        div { class: "card-head", span { class: "card-title", "Daily targets" }, span { class: "card-sub", "auto-calculated" } }
+                        div { class: "card-head", span { class: "card-title", "Daily targets" }, span { class: "card-sub", "editable" } }
                         div { class: "target-grid one",
                             div { div { class: "target-num", "{user.calorie_target}" } div { class: "muted tiny", "calories / day" } }
                         }

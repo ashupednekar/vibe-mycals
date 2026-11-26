@@ -42,8 +42,8 @@ async fn dispatch(mut req: Request, env: Env) -> Result<Response> {
         }
         ("GET", "/api/auth/google/start") => return google_start(&req, &env).await,
         ("GET", "/api/auth/google/callback") => return google_callback(&req, &env).await,
-        ("POST", "/api/dev/login") => return demo_login(&env).await,
         ("POST", "/api/auth/mobile/exchange") => return mobile_exchange(&mut req, &env).await,
+        ("GET", "/api/auth/mobile/pending") => return mobile_pending(&req, &env).await,
         ("POST", "/api/logout") => {
             let mut res = json_msg("signed out", 200);
             let _ = set_cookie(&mut res, SESSION_COOKIE, "", 0, false);
@@ -105,6 +105,8 @@ async fn google_start(req: &Request, env: &Env) -> Result<Response> {
     };
     let url = req.url()?;
     let mobile = query(req, "mobile").as_deref() == Some("1");
+    let attempt = query(req, "attempt")
+        .filter(|a| a.len() <= 64 && a.chars().all(|c| c.is_ascii_alphanumeric()));
     let next = query(req, "next")
         .filter(|n| n.starts_with('/') && !n.starts_with("//"))
         .unwrap_or_else(|| "/".into());
@@ -130,6 +132,9 @@ async fn google_start(req: &Request, env: &Env) -> Result<Response> {
         600,
         secure,
     )?;
+    if let Some(a) = &attempt {
+        set_cookie(&mut res, "oauth_attempt", a, 600, secure)?;
+    }
     Ok(res)
 }
 
@@ -192,12 +197,18 @@ async fn google_callback(req: &Request, env: &Env) -> Result<Response> {
     let user = upsert_google_user(&db, sub, &email, name, picture).await?;
     let token = sign_session(&session_secret(env)?, &user.id, now(), SESSION_DAYS * 86_400);
 
-    if next == "m" {
+    let attempt = cookie(req, "oauth_attempt");
+    if next == "m" || attempt.is_some() {
         let code = new_id("mob");
         exec(
             &db,
-            "INSERT INTO mobile_auth_codes (code, user_id, expires_at) VALUES (?1, ?2, ?3)",
-            vec![js(&code), js(&user.id), jn((now() + 300) as f64)],
+            "INSERT INTO mobile_auth_codes (code, user_id, expires_at, used, attempt_id) VALUES (?1, ?2, ?3, 0, ?4)",
+            vec![
+                js(&code),
+                js(&user.id),
+                jn((now() + 900) as f64),
+                attempt.clone().map(|a| js(&a)).unwrap_or(JsValue::NULL),
+            ],
         )
         .await?;
         let mut res = redirect_to(&format!("mycals://auth?code={code}"))?;
@@ -242,7 +253,8 @@ async fn upsert_google_user(
     let id = new_id("usr");
     exec(
         db,
-        "INSERT INTO users (id, google_sub, email, name, picture, onboarded) VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+        "INSERT INTO users (id, google_sub, email, name, picture, onboarded, calorie_target, protein_target, carb_target, fat_target)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 1200, 60, 130, 40)",
         vec![
             js(&id),
             js(sub),
@@ -255,6 +267,26 @@ async fn upsert_google_user(
     one(db, "SELECT * FROM users WHERE id = ?1", vec![js(&id)])
         .await?
         .ok_or_else(|| Error::Internal("user insert failed".into()))
+}
+
+async fn mobile_pending(req: &Request, env: &Env) -> Result<Response> {
+    #[derive(Deserialize)]
+    struct Row {
+        code: String,
+    }
+    let Some(attempt) = query(req, "attempt") else {
+        return json(&json!({ "code": Value::Null }), 200);
+    };
+    let db = env.d1("DB")?;
+    let row: Option<Row> = one(
+        &db,
+        "SELECT code FROM mobile_auth_codes
+         WHERE attempt_id=?1 AND used=0 AND expires_at > ?2
+         ORDER BY rowid DESC LIMIT 1",
+        vec![js(&attempt), jn(now() as f64)],
+    )
+    .await?;
+    json(&json!({ "code": row.map(|r| r.code) }), 200)
 }
 
 async fn mobile_exchange(req: &mut Request, env: &Env) -> Result<Response> {
@@ -286,7 +318,7 @@ async fn mobile_exchange(req: &mut Request, env: &Env) -> Result<Response> {
     let Some(row) = row else {
         return Ok(err(401, "Sign-in code expired. Try again."));
     };
-    if row.used != 0 || row.expires_at < now() as f64 {
+    if row.expires_at < now() as f64 {
         return Ok(err(401, "Sign-in code expired. Try again."));
     }
     exec(
@@ -303,84 +335,6 @@ async fn mobile_exchange(req: &mut Request, env: &Env) -> Result<Response> {
     json(&AuthResponse { token, user }, 200)
 }
 
-async fn demo_login(env: &Env) -> Result<Response> {
-    if var_str(env, "DEMO_MODE") != "1" {
-        return Ok(err(404, "Demo mode is off"));
-    }
-    let db = env.d1("DB")?;
-    seed_demo(&db).await?;
-    let user: User = one(&db, "SELECT * FROM users WHERE id = 'usr_demo'", vec![])
-        .await?
-        .ok_or_else(|| Error::Internal("demo seed failed".into()))?;
-    let token = sign_session(&session_secret(env)?, &user.id, now(), SESSION_DAYS * 86_400);
-    let mut res = json(&AuthResponse { token: token.clone(), user }, 200)?;
-    set_cookie(&mut res, SESSION_COOKIE, &token, SESSION_DAYS * 86_400, false)?;
-    Ok(res)
-}
-
-async fn seed_demo(db: &D1Database) -> Result<()> {
-    exec(
-        db,
-        "INSERT OR IGNORE INTO households (id, name, invite_code, owner_id) VALUES ('hh_demo', 'The Demo Family', 'DEMO42', 'usr_demo')",
-        vec![],
-    )
-    .await?;
-    exec(
-        db,
-        "INSERT OR IGNORE INTO users (id, email, name, sex, birth_year, height_cm, weight_kg, activity, goal, calorie_target, protein_target, carb_target, fat_target, share_diary, household_id, onboarded)
-         VALUES ('usr_demo', 'demo@mycals.app', 'Alex', 'female', 1994, 168, 63, 'moderate', 'lose', 1750, 126, 165, 55, 1, 'hh_demo', 1)",
-        vec![],
-    )
-    .await?;
-    exec(
-        db,
-        "INSERT OR IGNORE INTO users (id, email, name, sex, birth_year, height_cm, weight_kg, activity, goal, calorie_target, protein_target, carb_target, fat_target, share_diary, household_id, onboarded)
-         VALUES ('usr_maya', 'maya@mycals.app', 'Maya', 'female', 1996, 163, 57, 'light', 'maintain', 1850, 100, 210, 55, 1, 'hh_demo', 1)",
-        vec![],
-    )
-    .await?;
-    exec(
-        db,
-        "INSERT OR IGNORE INTO users (id, email, name, sex, birth_year, height_cm, weight_kg, activity, goal, calorie_target, protein_target, carb_target, fat_target, share_diary, household_id, onboarded)
-         VALUES ('usr_sam', 'sam@mycals.app', 'Sam', 'male', 1990, 181, 79, 'active', 'gain', 2600, 140, 300, 80, 1, 'hh_demo', 1)",
-        vec![],
-    )
-    .await?;
-    let rows = [
-        ("usr_demo", "breakfast", "Greek yogurt, berries & honey", 320.0, 22.0, 38.0, 7.0),
-        ("usr_demo", "lunch", "Chicken rice bowl", 560.0, 42.0, 62.0, 14.0),
-        ("usr_demo", "snacks", "Almonds", 170.0, 6.0, 6.0, 15.0),
-        ("usr_maya", "breakfast", "Oatmeal with banana", 310.0, 9.0, 54.0, 7.0),
-        ("usr_maya", "lunch", "Paneer salad wrap", 480.0, 24.0, 45.0, 22.0),
-        ("usr_sam", "breakfast", "Eggs on toast", 420.0, 26.0, 30.0, 21.0),
-        ("usr_sam", "lunch", "Chicken biryani", 680.0, 34.0, 78.0, 24.0),
-        ("usr_sam", "snacks", "Protein shake", 190.0, 30.0, 8.0, 4.0),
-    ];
-    for (i, (uid, meal, name, kcal, p, c, f)) in rows.iter().enumerate() {
-        // Seed yesterday/today/tomorrow so the demo looks right in every client timezone.
-        for offset in ["-1 day", "0 day", "+1 day"] {
-            exec(
-                db,
-                "INSERT OR IGNORE INTO diary_entries (id, user_id, log_date, meal, name, grams, kcal, protein, carbs, fat)
-                 VALUES (?1 || '_' || date('now', ?9), ?2, date('now', ?9), ?3, ?4, 100, ?5, ?6, ?7, ?8)",
-                vec![
-                    js(&format!("demo_{i}_")),
-                    js(uid),
-                    js(meal),
-                    js(name),
-                    jn(*kcal),
-                    jn(*p),
-                    jn(*c),
-                    jn(*f),
-                    js(offset),
-                ],
-            )
-            .await?;
-        }
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------- profile
 
 async fn update_profile(req: &mut Request, env: &Env) -> Result<Response> {
@@ -391,6 +345,12 @@ async fn update_profile(req: &mut Request, env: &Env) -> Result<Response> {
         Ok(v) => v,
         Err(_) => return Ok(err(400, "Invalid profile")),
     };
+    let stats_changed = input.sex.is_some()
+        || input.birth_year.is_some()
+        || input.height_cm.is_some()
+        || input.weight_kg.is_some()
+        || input.activity.is_some()
+        || input.goal.is_some();
     let name = input.name.filter(|s| !s.trim().is_empty()).unwrap_or(user.name);
     let sex = input.sex.unwrap_or(user.sex);
     let birth_year = input.birth_year.or(user.birth_year).unwrap_or(1995);
@@ -401,7 +361,23 @@ async fn update_profile(req: &mut Request, env: &Env) -> Result<Response> {
     let share = input.share_diary.unwrap_or(user.share_diary);
     let onboarded = input.onboarded.unwrap_or(true);
     let age = 2026 - birth_year;
-    let t = calc_targets(&sex, age, height, weight, &activity, &goal);
+    let computed = calc_targets(&sex, age, height, weight, &activity, &goal);
+    let calorie = match input.calorie_target {
+        Some(c) if (800..=6000).contains(&c) => c,
+        Some(_) => return Ok(err(400, "Calorie target must be between 800 and 6000")),
+        None if stats_changed => computed.calorie,
+        None => user.calorie_target,
+    };
+    let (protein, fat) = if input.calorie_target.is_some() || stats_changed {
+        (computed.protein, computed.fat)
+    } else {
+        (user.protein_target, user.fat_target)
+    };
+    let carbs = if input.calorie_target.is_some() || stats_changed {
+        (((calorie as f64) - (protein as f64) * 4.0 - (fat as f64) * 9.0).max(0.0) / 4.0).round() as i64
+    } else {
+        user.carb_target
+    };
     let db = env.d1("DB")?;
     exec(
         &db,
@@ -410,8 +386,8 @@ async fn update_profile(req: &mut Request, env: &Env) -> Result<Response> {
          fat_target=?11, share_diary=?12, onboarded=?13, updated_at=datetime('now') WHERE id=?14",
         vec![
             js(&name), js(&sex), jn(birth_year as f64), jn(height), jn(weight),
-            js(&activity), js(&goal), jn(t.calorie as f64), jn(t.protein as f64),
-            jn(t.carbs as f64), jn(t.fat as f64), jn(if share {1.0} else {0.0}),
+            js(&activity), js(&goal), jn(calorie as f64), jn(protein as f64),
+            jn(carbs as f64), jn(fat as f64), jn(if share {1.0} else {0.0}),
             jn(if onboarded {1.0} else {0.0}), js(&user.id),
         ],
     )

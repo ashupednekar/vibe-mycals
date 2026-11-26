@@ -225,6 +225,7 @@ pub struct ProfileInput {
     pub weight_kg: Option<f64>,
     pub activity: Option<String>,
     pub goal: Option<String>,
+    pub calorie_target: Option<i64>,
     pub share_diary: Option<bool>,
     pub units: Option<String>,
     pub onboarded: Option<bool>,

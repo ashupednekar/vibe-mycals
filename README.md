@@ -20,7 +20,6 @@ deploy.sh             builds + deploys everything
 - **Family calories** — create a family, share a six-character invite code, join. Members see each other's calories and meals for the day if sharing is on. Up to 8 people; ownership transfers on leave.
 - **Calorie diary** — breakfast / lunch / dinner / snacks, 60+ seeded foods, custom foods, per-100 g portions, 7-day calorie chart.
 - **Scan with Gemini** — photo goes to the Worker, the Worker calls Gemini with a structured nutrition schema, and the client logs the detected items. The API key is a Worker secret; it never reaches the browser.
-- **Demo mode** — `DEMO_MODE=1` enables a one-click demo family (`DEMO42`) so the app is usable before Google credentials are configured.
 
 ## Deploy
 
@@ -56,7 +55,6 @@ Create `.dev.vars` for local secrets:
 
 ```bash
 SESSION_SECRET=dev-secret-change-me
-DEMO_MODE=1
 GEMINI_API_KEY=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
@@ -82,7 +80,6 @@ npx expo start
 | --- | --- | --- |
 | GET | `/api/auth/google/start` | begin Google OAuth (`?mobile=1` for the app) |
 | GET | `/api/auth/google/callback` | exchange code, set session / deep-link token |
-| POST | `/api/dev/login` | demo user (DEMO_MODE only) |
 | GET | `/api/me` | current user |
 | PUT | `/api/profile` | profile + auto calorie target |
 | GET | `/api/diary?date=` | day view |
