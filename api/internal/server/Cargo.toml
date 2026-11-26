@@ -11,4 +11,5 @@ worker-macros = "0.9"
 mycals-common = { path = "../../../common" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
 console_error_panic_hook = "0.1"

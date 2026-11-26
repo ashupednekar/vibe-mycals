@@ -8,6 +8,10 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = ["/api/*"]
 
+[[r2_buckets]]
+binding = "SCANS"
+bucket_name = "mycals-scans"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "mycals"

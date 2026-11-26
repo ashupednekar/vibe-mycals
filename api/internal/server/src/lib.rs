@@ -1,3 +1,4 @@
+use base64::Engine;
 use mycals_common::*;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -61,6 +62,8 @@ async fn dispatch(mut req: Request, env: Env) -> Result<Response> {
         ("GET", "/api/foods") => return search_foods(&req, &env).await,
         ("POST", "/api/foods") => return create_food(&mut req, &env).await,
         ("POST", "/api/scan") => return scan_food(&mut req, &env).await,
+        ("POST", "/api/scan/refine") => return refine_scan(&mut req, &env).await,
+        ("GET", "/api/scans") => return list_scans(&req, &env).await,
         ("GET", "/api/family") => return family_get(&req, &env).await,
         ("POST", "/api/family") => return family_create(&mut req, &env).await,
         ("POST", "/api/family/join") => return family_join(&mut req, &env).await,
@@ -81,6 +84,14 @@ async fn dispatch(mut req: Request, env: Env) -> Result<Response> {
     if method == "GET" && path.starts_with("/api/foods/barcode/") {
         let code = path.trim_start_matches("/api/foods/barcode/").to_string();
         return barcode_lookup(&env, &code).await;
+    }
+    if method == "GET" && path.starts_with("/api/scans/") && path.ends_with("/image") {
+        let id = path
+            .trim_start_matches("/api/scans/")
+            .trim_end_matches("/image")
+            .trim_end_matches('/')
+            .to_string();
+        return scan_image(&req, &env, &id).await;
     }
     if method == "GET" && path.starts_with("/api/family/members/") && path.ends_with("/diary") {
         let id = path
@@ -705,13 +716,13 @@ async fn barcode_lookup(env: &Env, code: &str) -> Result<Response> {
 // ---------------------------------------------------------------- gemini scan
 
 async fn scan_food(req: &mut Request, env: &Env) -> Result<Response> {
-    let Some(_user) = current_user(req, env).await? else {
+    let Some(user) = current_user(req, env).await? else {
         return Ok(err(401, "Sign in to continue"));
     };
     let Ok(key) = env.secret("GEMINI_API_KEY") else {
         return Ok(err(
             503,
-            "Photo scanning is not configured yet. Add GEMINI_API_KEY as a Worker secret.",
+            "Photo scanning is not configured.",
         ));
     };
     let input: ScanInput = match req.json().await {
@@ -781,14 +792,294 @@ async fn scan_food(req: &mut Request, env: &Env) -> Result<Response> {
         .trim();
     let mut result: ScanResult = match serde_json::from_str(raw) {
         Ok(r) => r,
-        Err(_) => return Ok(err(502, "Gemini could not read that photo. Try a clearer shot.")),
+        Err(_) => return Ok(err(502, "Couldn't read that photo. Try a clearer shot.")),
     };
     result.items.retain(|i| i.kcal >= 0.0 && i.grams >= 0.0);
     if result.items.is_empty() {
         return Ok(err(422, "No food found in that photo. Try again."));
     }
     result.confidence = result.confidence.clamp(0.0, 1.0);
+
+    // Persist the scan so the description/image can be reviewed later.
+    let scan_id = new_id("scan");
+    let total_kcal = round1(result.items.iter().map(|i| i.kcal).sum::<f64>());
+    let ext = if input.mime_type.contains("png") {
+        "png"
+    } else if input.mime_type.contains("webp") {
+        "webp"
+    } else {
+        "jpg"
+    };
+    let key = format!("scans/{}/{scan_id}.{ext}", user.id);
+    let mut image_key: Option<String> = None;
+    if let Ok(bucket) = env.bucket("SCANS") {
+        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&input.image_base64) {
+            if bucket.put(key.clone(), bytes).execute().await.is_ok() {
+                image_key = Some(key);
+            }
+        }
+    }
+    if let Ok(db) = env.d1("DB") {
+        let items_json = serde_json::to_string(&result.items).unwrap_or_else(|_| "[]".into());
+        let _ = exec(
+            &db,
+            "INSERT INTO scans (id, user_id, log_date, name, description, confidence, items_json, kcal, image_key, image_mime)
+             VALUES (?1, ?2, date('now'), ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            vec![
+                js(&scan_id), js(&user.id), js(&result.name), js(&result.description),
+                jn(result.confidence), js(&items_json), jn(total_kcal),
+                image_key.clone().map(|k| js(&k)).unwrap_or(JsValue::NULL),
+                js(&input.mime_type),
+            ],
+        )
+        .await;
+    }
+    result.scan_id = Some(scan_id);
     json(&result, 200)
+}
+
+async fn list_scans(req: &Request, env: &Env) -> Result<Response> {
+    let Some(user) = current_user(req, env).await? else {
+        return Ok(err(401, "Sign in to continue"));
+    };
+    let db = env.d1("DB")?;
+    #[derive(Deserialize)]
+    struct Row {
+        id: String,
+        name: String,
+        description: String,
+        confidence: f64,
+        items_json: String,
+        kcal: f64,
+        image_key: Option<String>,
+        created_at: String,
+    }
+    let rows: Vec<Row> = all(
+        &db,
+        "SELECT id, name, description, confidence, items_json, kcal, image_key, created_at
+         FROM scans WHERE user_id=?1 ORDER BY created_at DESC, rowid DESC LIMIT 30",
+        vec![js(&user.id)],
+    )
+    .await?;
+    let scans: Vec<StoredScan> = rows
+        .into_iter()
+        .filter_map(|r| {
+            let items: Vec<ScanItem> = serde_json::from_str(&r.items_json).ok()?;
+            let image_url = r.image_key.map(|_| format!("/api/scans/{}/image", r.id));
+            Some(StoredScan {
+                id: r.id,
+                name: r.name,
+                description: r.description,
+                confidence: r.confidence,
+                items,
+                kcal: r.kcal,
+                image_url,
+                created_at: r.created_at,
+            })
+        })
+        .collect();
+    json(&scans, 200)
+}
+
+async fn scan_image(req: &Request, env: &Env, id: &str) -> Result<Response> {
+    let Some(user) = current_user(req, env).await? else {
+        return Ok(err(401, "Sign in to continue"));
+    };
+    let db = env.d1("DB")?;
+    #[derive(Deserialize)]
+    struct Row {
+        image_key: Option<String>,
+        image_mime: Option<String>,
+    }
+    let row: Option<Row> = one(
+        &db,
+        "SELECT image_key, image_mime FROM scans WHERE id=?1 AND user_id=?2",
+        vec![js(id), js(&user.id)],
+    )
+    .await?;
+    let Some(row) = row else {
+        return Ok(err(404, "Scan not found"));
+    };
+    let Some(key) = row.image_key else {
+        return Ok(err(404, "No image for this scan"));
+    };
+    let bucket = env.bucket("SCANS")?;
+    let Some(obj) = bucket.get(key).execute().await? else {
+        return Ok(err(404, "Image expired"));
+    };
+    let Some(body) = obj.body() else {
+        return Ok(err(404, "Image unavailable"));
+    };
+    let bytes = body.bytes().await?;
+    let mut res = Response::from_bytes(bytes)?;
+    res.headers_mut().set(
+        "content-type",
+        row.image_mime.as_deref().unwrap_or("image/jpeg"),
+    )?;
+    res.headers_mut().set("cache-control", "private, max-age=3600")?;
+    Ok(res)
+}
+
+async fn refine_scan(req: &mut Request, env: &Env) -> Result<Response> {
+    let Some(user) = current_user(req, env).await? else {
+        return Ok(err(401, "Sign in to continue"));
+    };
+    let input: RefineInput = match req.json().await {
+        Ok(v) => v,
+        Err(_) => return Ok(err(400, "Invalid correction")),
+    };
+    let prompt = input.prompt.trim().to_string();
+    if prompt.len() < 2 || prompt.len() > 500 {
+        return Ok(err(400, "Tell me what to change, in a few words"));
+    }
+    let db = env.d1("DB")?;
+    let mut previous: ScanResult;
+    let mut scan_id: Option<String> = None;
+    if let Some(id) = input.scan_id.as_deref() {
+        #[derive(Deserialize)]
+        struct Row {
+            name: String,
+            description: String,
+            confidence: f64,
+            items_json: String,
+        }
+        let row: Option<Row> = one(
+            &db,
+            "SELECT name, description, confidence, items_json FROM scans WHERE id=?1 AND user_id=?2",
+            vec![js(id), js(&user.id)],
+        )
+        .await?;
+        let Some(row) = row else {
+            return Ok(err(404, "Scan not found"));
+        };
+        let items: Vec<ScanItem> = serde_json::from_str(&row.items_json).unwrap_or_default();
+        previous = ScanResult {
+            scan_id: Some(id.to_string()),
+            name: row.name,
+            description: row.description,
+            items,
+            confidence: row.confidence,
+        };
+        scan_id = Some(id.to_string());
+    } else if let Some(result) = input.result {
+        previous = result;
+    } else {
+        return Ok(err(400, "Scan result missing"));
+    }
+    if previous.items.is_empty() {
+        return Ok(err(400, "Nothing to correct"));
+    }
+    let Ok(key) = env.secret("GEMINI_API_KEY") else {
+        return Ok(err(503, "Scanning is not configured"));
+    };
+    let model = if var_str(env, "GEMINI_MODEL").is_empty() {
+        "gemini-2.5-flash".to_string()
+    } else {
+        var_str(env, "GEMINI_MODEL")
+    };
+    let previous_json = serde_json::to_string(&previous.items).unwrap_or_else(|_| "[]".into());
+    let schema = json!({
+        "type": "OBJECT",
+        "properties": {
+            "valid": {"type": "BOOLEAN"},
+            "reason": {"type": "STRING"},
+            "confidence": {"type": "NUMBER"},
+            "items": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "name": {"type": "STRING"},
+                        "grams": {"type": "NUMBER"},
+                        "kcal": {"type": "NUMBER"},
+                        "protein": {"type": "NUMBER"},
+                        "carbs": {"type": "NUMBER"},
+                        "fat": {"type": "NUMBER"}
+                    },
+                    "required": ["name", "grams", "kcal", "protein", "carbs", "fat"]
+                }
+            }
+        },
+        "required": ["valid", "reason", "items", "confidence"]
+    });
+    let instruction = format!(
+        "Correct a previous food scan. Previous items (JSON): {previous_json}.          User correction: \"{prompt}\".          Accept ONLY portion/quantity corrections (less, more, half, grams, pieces, etc.).          If the request changes which dish it is, adds/removes different foods, or is not a plausible portion correction,          set valid=false, explain briefly in reason, and return the previous items unchanged.          Do not change dish identity or item names. Recalculate grams + calories/macros for the corrected portion."
+    );
+    let body = json!({
+        "contents": [{"parts": [{"text": instruction}]}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "responseMimeType": "application/json",
+            "responseSchema": schema
+        }
+    });
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    );
+    let text = post_text(&url, &body.to_string(), "application/json", None).await?;
+    let v: Value = serde_json::from_str(&text).unwrap_or_default();
+    let raw = v["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    let parsed: Value = serde_json::from_str(raw.trim()).unwrap_or_default();
+    let valid = parsed["valid"].as_bool().unwrap_or(false);
+    let reason = parsed["reason"].as_str().unwrap_or_default().to_string();
+    let mut items: Vec<ScanItem> = serde_json::from_value(parsed["items"].clone()).unwrap_or_default();
+    let confidence = parsed["confidence"].as_f64().unwrap_or(previous.confidence).clamp(0.0, 1.0);
+    if !valid || items.len() != previous.items.len() || items.is_empty() {
+        return json(
+            &RefineResponse {
+                valid: false,
+                reason: if reason.is_empty() {
+                    "That doesn't look like a portion correction.".into()
+                } else {
+                    reason
+                },
+                result: previous,
+            },
+            200,
+        );
+    }
+    for (idx, item) in items.iter_mut().enumerate() {
+        // Keep the original dish identity; Gemini only adjusts quantities.
+        item.name = previous.items[idx].name.clone();
+        item.grams = item.grams.clamp(0.0, 5000.0);
+        item.kcal = round1(item.kcal.clamp(0.0, 20000.0));
+        item.protein = round1(item.protein.clamp(0.0, 1000.0));
+        item.carbs = round1(item.carbs.clamp(0.0, 2000.0));
+        item.fat = round1(item.fat.clamp(0.0, 1000.0));
+    }
+    let total: f64 = items.iter().map(|i| i.kcal).sum();
+    if total <= 0.0 || total > 20000.0 {
+        return json(
+            &RefineResponse {
+                valid: false,
+                reason: "That correction gives an invalid calorie count.".into(),
+                result: previous,
+            },
+            200,
+        );
+    }
+    previous.items = items;
+    previous.confidence = confidence;
+    previous.scan_id = scan_id.clone();
+    if let Some(id) = scan_id.as_deref() {
+        let items_json = serde_json::to_string(&previous.items).unwrap_or_else(|_| "[]".into());
+        let _ = exec(
+            &db,
+            "UPDATE scans SET items_json=?1, kcal=?2, confidence=?3 WHERE id=?4 AND user_id=?5",
+            vec![js(&items_json), jn(round1(total)), jn(confidence), js(id), js(&user.id)],
+        )
+        .await;
+    }
+    json(
+        &RefineResponse {
+            valid: true,
+            reason: if reason.is_empty() { "Updated".into() } else { reason },
+            result: previous,
+        },
+        200,
+    )
 }
 
 // ---------------------------------------------------------------- family

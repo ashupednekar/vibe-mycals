@@ -222,7 +222,7 @@ fn Login() -> Element {
                 div { class: "feature-chips",
                     span { "🍽️ 60+ foods" }
                     span { "👨‍👩‍👧 family diary" }
-                    span { "✨ Gemini scanning" }
+                    span { "✨ AI scanning" }
                 }
             }
         }
@@ -882,7 +882,7 @@ fn ScanModal(date: String, on_close: EventHandler<()>, on_added: EventHandler<()
             div { class: "modal modal-scan", onclick: move |e| e.stop_propagation(),
                 div { class: "modal-head",
                     div {
-                        div { class: "eyebrow", "Gemini vision" }
+                        div { class: "eyebrow", "Photo scan" }
                         h2 { "Scan a plate or label" }
                     }
                     button { class: "x", onclick: move |_| on_close.call(()), "×" }
@@ -936,7 +936,7 @@ fn ScanModal(date: String, on_close: EventHandler<()>, on_added: EventHandler<()
                         button { class: "btn btn-primary", disabled: busy() || image().is_empty(), onclick: analyze,
                             if busy() { "Reading your plate…" } else { "Detect nutrition" }
                         }
-                        p { class: "muted tiny", "Estimates from Gemini. Check the numbers before logging." }
+                        p { class: "muted tiny", "AI estimates. Check the numbers before logging." }
                     }
                 }
                 if !error().is_empty() { p { class: "notice", "{error}" } }
@@ -1332,7 +1332,7 @@ fn Profile() -> Element {
                     }
                     section { class: "card note-card",
                         div { class: "note-emoji", "✨" }
-                        p { "Scanning uses Gemini through a Cloudflare Worker secret. Your photo is processed once and never stored." }
+                        p { "Scanning runs securely on the server. Photos and descriptions stay in your scan history." }
                     }
                 }
             }

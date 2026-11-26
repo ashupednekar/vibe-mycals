@@ -167,10 +167,38 @@ pub struct ScanItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanResult {
+    #[serde(default)]
+    pub scan_id: Option<String>,
     pub name: String,
     pub description: String,
     pub items: Vec<ScanItem>,
     pub confidence: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredScan {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub confidence: f64,
+    pub items: Vec<ScanItem>,
+    pub kcal: f64,
+    pub image_url: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefineInput {
+    pub scan_id: Option<String>,
+    pub prompt: String,
+    pub result: Option<ScanResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefineResponse {
+    pub valid: bool,
+    pub reason: String,
+    pub result: ScanResult,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

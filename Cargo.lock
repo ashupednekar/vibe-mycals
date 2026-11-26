@@ -1245,6 +1245,7 @@ dependencies = [
 name = "mycals-api"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "console_error_panic_hook",
  "mycals-common",
  "serde",
