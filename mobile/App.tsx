@@ -8,6 +8,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -25,6 +26,8 @@ const API =
   "https://mycals.ashupednekar49.workers.dev";
 const APP_SCHEME = "mycals://auth";
 const SESSION_KEY = "mycals.session";
+
+type AuthResponse = { token: string; user: User };
 
 type User = {
   id: string;
@@ -304,10 +307,31 @@ export default function App() {
   }, []);
 
   const signIn = async (t: string) => {
-    await SecureStore.setItemAsync(SESSION_KEY, t);
-    const me = await request<User>("/api/me", t);
-    setToken(t);
+    const clean = t.trim();
+    if (!clean) throw new Error("Empty session token");
+    // Verify before persisting so a bad/stale token can never get stuck in the keychain.
+    const me = await request<User>("/api/me", clean);
+    await SecureStore.setItemAsync(SESSION_KEY, clean);
+    setToken(clean);
     setUser(me);
+  };
+
+  const completeAuthUrl = async (url: string) => {
+    const codeMatch = /[?&]code=([^&]+)/.exec(url);
+    if (codeMatch?.[1]) {
+      const res = await request<AuthResponse>("/api/auth/mobile/exchange", null, {
+        method: "POST",
+        body: JSON.stringify({ code: decodeURIComponent(codeMatch[1]).trim() }),
+      });
+      await signIn(res.token);
+      return;
+    }
+    const tokenMatch = /[?&]token=([^&]+)/.exec(url);
+    if (tokenMatch?.[1]) {
+      await signIn(decodeURIComponent(tokenMatch[1]).trim());
+      return;
+    }
+    throw new Error("Sign-in did not return a session");
   };
 
   const signOut = async () => {
@@ -315,6 +339,19 @@ export default function App() {
     setToken(null);
     setUser(null);
   };
+
+  // Handles the mycals://auth?token=... deep link even if iOS opens the app
+  // externally instead of returning through ASWebAuthenticationSession.
+  useEffect(() => {
+    const handle = ({ url }: { url: string }) => {
+      completeAuthUrl(url).catch(() => {});
+    };
+    const sub = Linking.addEventListener("url", handle);
+    Linking.getInitialURL().then((url) => {
+      if (url) handle({ url });
+    }).catch(() => {});
+    return () => sub.remove();
+  }, []);
 
   if (booting) {
     return (
@@ -332,7 +369,7 @@ export default function App() {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <StatusBar style="dark" />
       {!token || !user ? (
-        <Login onSignedIn={signIn} />
+        <Login onSignedIn={signIn} onAuthUrl={completeAuthUrl} />
       ) : !user.onboarded ? (
         <Onboarding token={token} onDone={setUser} />
       ) : (
@@ -344,7 +381,7 @@ export default function App() {
 
 // ------------------------------------------------------------------ login
 
-function Login({ onSignedIn }: { onSignedIn: (token: string) => Promise<void> }) {
+function Login({ onSignedIn, onAuthUrl }: { onSignedIn: (token: string) => Promise<void>; onAuthUrl: (url: string) => Promise<void> }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -352,17 +389,16 @@ function Login({ onSignedIn }: { onSignedIn: (token: string) => Promise<void> })
     setError("");
     setBusy(true);
     try {
+      // Drop any stale local session before a fresh Google attempt.
+      await SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
       const result = await WebBrowser.openAuthSessionAsync(
         `${API}/api/auth/google/start?mobile=1`,
         APP_SCHEME
       );
       if (result.type === "success") {
-        const match = /[?&]token=([^&]+)/.exec(result.url);
-        if (match?.[1]) {
-          await onSignedIn(decodeURIComponent(match[1]));
-        } else {
-          setError("Sign-in did not return a session.");
-        }
+        await onAuthUrl(result.url);
+      } else {
+        setError(`Sign-in did not complete (${result.type}). Try again.`);
       }
     } catch (e) {
       setError(msg(e));
@@ -416,6 +452,16 @@ function Login({ onSignedIn }: { onSignedIn: (token: string) => Promise<void> })
           <Text style={[s.tiny, { textAlign: "center" }]}>Demo mode · no sign-up needed</Text>
         </View>
         <Banner text={error} />
+        <Pressable
+          onPress={async () => {
+            await SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
+            setError("Saved session cleared. Try again.");
+          }}
+        >
+          <Text style={[s.tiny, { textAlign: "center", textDecorationLine: "underline" }]}>
+            Clear saved session
+          </Text>
+        </Pressable>
         <View style={{ flex: 1 }} />
         <Text style={[s.tiny, { textAlign: "center" }]}>
           Calories only. Family optional. Photos never stored.

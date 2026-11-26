@@ -115,7 +115,8 @@ jobs:
           python3 - "$DIR/index.html" "$APP_URL" <<'PY'
           import sys
           path, url = sys.argv[1], sys.argv[2]
-          open(path, "w").write(open(path).read().replace("__APP_URL__", url))
+          html = open(path).read().replace("__APP_URL__", url)
+          open(path, "w").write(html)
           PY
           wrangler pages project create mycals --production-branch=main >/dev/null 2>&1 || true
           wrangler pages deploy "$DIR" --project-name=mycals --branch=main --commit-dirty=true

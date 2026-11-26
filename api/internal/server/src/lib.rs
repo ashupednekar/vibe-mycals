@@ -43,6 +43,7 @@ async fn dispatch(mut req: Request, env: Env) -> Result<Response> {
         ("GET", "/api/auth/google/start") => return google_start(&req, &env).await,
         ("GET", "/api/auth/google/callback") => return google_callback(&req, &env).await,
         ("POST", "/api/dev/login") => return demo_login(&env).await,
+        ("POST", "/api/auth/mobile/exchange") => return mobile_exchange(&mut req, &env).await,
         ("POST", "/api/logout") => {
             let mut res = json_msg("signed out", 200);
             let _ = set_cookie(&mut res, SESSION_COOKIE, "", 0, false);
@@ -192,7 +193,14 @@ async fn google_callback(req: &Request, env: &Env) -> Result<Response> {
     let token = sign_session(&session_secret(env)?, &user.id, now(), SESSION_DAYS * 86_400);
 
     if next == "m" {
-        let mut res = redirect_to(&format!("mycals://auth?token={token}"))?;
+        let code = new_id("mob");
+        exec(
+            &db,
+            "INSERT INTO mobile_auth_codes (code, user_id, expires_at) VALUES (?1, ?2, ?3)",
+            vec![js(&code), js(&user.id), jn((now() + 300) as f64)],
+        )
+        .await?;
+        let mut res = redirect_to(&format!("mycals://auth?code={code}"))?;
         set_cookie(&mut res, SESSION_COOKIE, &token, SESSION_DAYS * 86_400, true)?;
         return Ok(res);
     }
@@ -247,6 +255,52 @@ async fn upsert_google_user(
     one(db, "SELECT * FROM users WHERE id = ?1", vec![js(&id)])
         .await?
         .ok_or_else(|| Error::Internal("user insert failed".into()))
+}
+
+async fn mobile_exchange(req: &mut Request, env: &Env) -> Result<Response> {
+    #[derive(Deserialize)]
+    struct Body {
+        code: String,
+    }
+    #[derive(Deserialize)]
+    struct CodeRow {
+        user_id: String,
+        expires_at: f64,
+        used: i64,
+    }
+    let body: Body = match req.json().await {
+        Ok(v) => v,
+        Err(_) => return Ok(err(400, "Invalid sign-in code")),
+    };
+    let code = body.code.trim().to_string();
+    if code.is_empty() {
+        return Ok(err(400, "Invalid sign-in code"));
+    }
+    let db = env.d1("DB")?;
+    let row: Option<CodeRow> = one(
+        &db,
+        "SELECT user_id, expires_at, used FROM mobile_auth_codes WHERE code=?1",
+        vec![js(&code)],
+    )
+    .await?;
+    let Some(row) = row else {
+        return Ok(err(401, "Sign-in code expired. Try again."));
+    };
+    if row.used != 0 || row.expires_at < now() as f64 {
+        return Ok(err(401, "Sign-in code expired. Try again."));
+    }
+    exec(
+        &db,
+        "UPDATE mobile_auth_codes SET used=1 WHERE code=?1",
+        vec![js(&code)],
+    )
+    .await?;
+    let user: Option<User> = one(&db, "SELECT * FROM users WHERE id=?1", vec![js(&row.user_id)]).await?;
+    let Some(user) = user else {
+        return Ok(err(401, "Sign-in failed. Try again."));
+    };
+    let token = sign_session(&session_secret(env)?, &user.id, now(), SESSION_DAYS * 86_400);
+    json(&AuthResponse { token, user }, 200)
 }
 
 async fn demo_login(env: &Env) -> Result<Response> {
