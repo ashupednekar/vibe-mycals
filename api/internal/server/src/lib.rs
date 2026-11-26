@@ -70,6 +70,8 @@ async fn dispatch(mut req: Request, env: Env) -> Result<Response> {
         ("POST", "/api/family/leave") => return family_leave(&req, &env).await,
         ("POST", "/api/family/rotate") => return family_rotate(&req, &env).await,
         ("GET", "/api/insights") => return insights(&req, &env).await,
+        ("POST", "/api/widget/token") => return widget_token(&req, &env).await,
+        ("GET", "/api/widget/summary") => return widget_summary(&req, &env).await,
         _ => {}
     }
 
@@ -546,13 +548,20 @@ async fn patch_entry(req: &mut Request, env: &Env, id: &str) -> Result<Response>
         return Ok(err(401, "Sign in to continue"));
     };
     #[derive(Deserialize)]
-    struct Body { grams: f64 }
+    struct Body { grams: Option<f64>, meal: Option<String> }
     let body: Body = match req.json().await {
         Ok(v) => v,
         Err(_) => return Ok(err(400, "Invalid entry")),
     };
-    if !(1.0..=5000.0).contains(&body.grams) {
-        return Ok(err(400, "Portion must be between 1 and 5000 g"));
+    if let Some(g) = body.grams {
+        if !(1.0..=5000.0).contains(&g) {
+            return Ok(err(400, "Portion must be between 1 and 5000 g"));
+        }
+    }
+    if let Some(m) = body.meal.as_deref() {
+        if !is_meal(m) {
+            return Ok(err(400, "Unknown meal"));
+        }
     }
     let db = env.d1("DB")?;
     let entry: Option<DiaryEntry> = one(
@@ -565,16 +574,21 @@ async fn patch_entry(req: &mut Request, env: &Env, id: &str) -> Result<Response>
     let Some(mut entry) = entry else {
         return Ok(err(404, "Entry not found"));
     };
-    let scale = if entry.grams > 0.0 { body.grams / entry.grams } else { 1.0 };
-    entry.grams = body.grams;
-    entry.kcal = round1(entry.kcal * scale);
-    entry.protein = round1(entry.protein * scale);
-    entry.carbs = round1(entry.carbs * scale);
-    entry.fat = round1(entry.fat * scale);
+    if let Some(g) = body.grams {
+        let scale = if entry.grams > 0.0 { g / entry.grams } else { 1.0 };
+        entry.grams = g;
+        entry.kcal = round1(entry.kcal * scale);
+        entry.protein = round1(entry.protein * scale);
+        entry.carbs = round1(entry.carbs * scale);
+        entry.fat = round1(entry.fat * scale);
+    }
+    if let Some(meal) = body.meal {
+        entry.meal = meal;
+    }
     exec(
         &db,
-        "UPDATE diary_entries SET grams=?1, kcal=?2, protein=?3, carbs=?4, fat=?5 WHERE id=?6",
-        vec![jn(entry.grams), jn(entry.kcal), jn(entry.protein), jn(entry.carbs), jn(entry.fat), js(id)],
+        "UPDATE diary_entries SET meal=?1, grams=?2, kcal=?3, protein=?4, carbs=?5, fat=?6 WHERE id=?7",
+        vec![js(&entry.meal), jn(entry.grams), jn(entry.kcal), jn(entry.protein), jn(entry.carbs), jn(entry.fat), js(id)],
     )
     .await?;
     json(&entry, 200)
@@ -1078,6 +1092,73 @@ async fn refine_scan(req: &mut Request, env: &Env) -> Result<Response> {
             reason: if reason.is_empty() { "Updated".into() } else { reason },
             result: previous,
         },
+        200,
+    )
+}
+
+async fn widget_token(req: &Request, env: &Env) -> Result<Response> {
+    let Some(user) = current_user(req, env).await? else {
+        return Ok(err(401, "Sign in to continue"));
+    };
+    let db = env.d1("DB")?;
+    let token = format!("{}{}", new_id("wgt"), new_id("t"));
+    exec(&db, "DELETE FROM widget_tokens WHERE user_id=?1", vec![js(&user.id)]).await?;
+    exec(
+        &db,
+        "INSERT INTO widget_tokens (token, user_id) VALUES (?1, ?2)",
+        vec![js(&token), js(&user.id)],
+    )
+    .await?;
+    json(&json!({ "token": token }), 200)
+}
+
+async fn widget_summary(req: &Request, env: &Env) -> Result<Response> {
+    let Some(token) = query(req, "token") else {
+        return Ok(err(401, "Widget token missing"));
+    };
+    let db = env.d1("DB")?;
+    #[derive(Deserialize)]
+    struct TokenRow {
+        user_id: String,
+    }
+    let row: Option<TokenRow> = one(
+        &db,
+        "SELECT user_id FROM widget_tokens WHERE token=?1",
+        vec![js(&token)],
+    )
+    .await?;
+    let Some(row) = row else {
+        return Ok(err(401, "Invalid widget token"));
+    };
+    let user: Option<User> = one(&db, "SELECT * FROM users WHERE id=?1", vec![js(&row.user_id)]).await?;
+    let Some(user) = user else {
+        return Ok(err(401, "User not found"));
+    };
+    let date = match query(req, "date") {
+        Some(d) if is_date(&d) => d,
+        _ => today(&db).await?,
+    };
+    #[derive(Deserialize)]
+    struct Sum {
+        kcal: f64,
+        protein: f64,
+    }
+    let sum: Option<Sum> = one(
+        &db,
+        "SELECT COALESCE(SUM(kcal),0) AS kcal, COALESCE(SUM(protein),0) AS protein
+         FROM diary_entries WHERE user_id=?1 AND log_date=?2",
+        vec![js(&user.id), js(&date)],
+    )
+    .await?;
+    let sum = sum.unwrap_or(Sum { kcal: 0.0, protein: 0.0 });
+    json(
+        &json!({
+            "name": user.name,
+            "date": date,
+            "kcal": round1(sum.kcal),
+            "target": user.calorie_target,
+            "protein": round1(sum.protein),
+        }),
         200,
     )
 }

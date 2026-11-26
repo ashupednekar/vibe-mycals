@@ -670,6 +670,28 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
     ["snacks", "Snacks", "nutrition-outline"],
   ];
 
+  const moveEntry = (entry: Entry) => {
+    Alert.alert("Move entry", entry.name, [
+      ...meals.map(([key, label]) => ({
+        text: label,
+        onPress: () => {
+          (async () => {
+            try {
+              await request<Entry>(`/api/diary/entries/${entry.id}`, token, {
+                method: "PATCH",
+                body: JSON.stringify({ meal: key }),
+              });
+              load();
+            } catch (e) {
+              setError(msg(e));
+            }
+          })();
+        },
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
+  };
+
   return (
     <ScrollView
       contentContainerStyle={s.page}
@@ -723,6 +745,8 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
         </Pressable>
       </View>
 
+      <Text style={[s.tiny, { marginTop: 2 }]}>Hold an item to move it to another meal.</Text>
+
       {loading && !diary ? (
         <ActivityIndicator color={C.green} style={{ marginTop: 30 }} />
       ) : (
@@ -749,7 +773,13 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
                 </Pressable>
               ) : (
                 items.map((e) => (
-                  <View key={e.id} style={s.entry}>
+                  <Pressable
+                    key={e.id}
+                    style={s.entry}
+                    onLongPress={() => moveEntry(e)}
+                    delayLongPress={350}
+                  >
+                    <Ionicons name="reorder-two-outline" size={16} color={C.muted} />
                     <View style={{ flex: 1 }}>
                       <Text style={s.entryName} numberOfLines={1}>
                         {e.name}
@@ -757,7 +787,7 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
                       <Text style={s.mutedSmall}>{Math.round(e.grams)} g</Text>
                     </View>
                     <Text style={s.entryKcal}>{Math.round(e.kcal)}</Text>
-                  </View>
+                  </Pressable>
                 ))
               )}
             </View>
@@ -1451,6 +1481,7 @@ function You({
   const [share, setShare] = useState(user.share_diary);
   const [target, setTarget] = useState(String(user.calorie_target));
   const [savingTarget, setSavingTarget] = useState(false);
+  const [widgetToken, setWidgetToken] = useState("");
   const [error, setError] = useState("");
 
   const toggle = async () => {
@@ -1486,6 +1517,19 @@ function You({
       setError(msg(e));
     }
     setSavingTarget(false);
+  };
+
+  const generateWidgetToken = async () => {
+    setError("");
+    try {
+      const r = await request<{ token: string }>("/api/widget/token", token, {
+        method: "POST",
+        body: "{}",
+      });
+      setWidgetToken(r.token);
+    } catch (e) {
+      setError(msg(e));
+    }
   };
 
   return (
@@ -1533,6 +1577,32 @@ function You({
           <View style={[s.knob, share && { alignSelf: "flex-end" }]} />
         </View>
       </Pressable>
+
+      <View style={s.card}>
+        <Text style={s.cardTitle}>iPhone widget (free)</Text>
+        <Text style={s.mutedSmall}>
+          Native widgets need a paid Apple account. Use Scriptable for a free home-screen calorie widget.
+        </Text>
+        <Btn
+          label={widgetToken ? "Regenerate token" : "Generate widget token"}
+          onPress={generateWidgetToken}
+          variant="outline"
+          small
+        />
+        {widgetToken ? (
+          <>
+            <TextInput
+              value={widgetToken}
+              editable={false}
+              selectTextOnFocus
+              style={[s.input, { marginTop: 8, fontSize: fs(11) }]}
+            />
+            <Text style={s.tiny}>
+              Copy this into mobile/scriptable/MyCalsWidget.js, then add a Scriptable widget.
+            </Text>
+          </>
+        ) : null}
+      </View>
 
       <Btn label="Sign out" onPress={onSignOut} variant="outline" />
       <Text style={[s.tiny, { textAlign: "center" }]}>
