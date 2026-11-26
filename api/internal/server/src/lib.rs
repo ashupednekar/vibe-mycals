@@ -298,7 +298,6 @@ async fn mobile_exchange(req: &mut Request, env: &Env) -> Result<Response> {
     struct CodeRow {
         user_id: String,
         expires_at: f64,
-        used: i64,
     }
     let body: Body = match req.json().await {
         Ok(v) => v,
@@ -311,7 +310,7 @@ async fn mobile_exchange(req: &mut Request, env: &Env) -> Result<Response> {
     let db = env.d1("DB")?;
     let row: Option<CodeRow> = one(
         &db,
-        "SELECT user_id, expires_at, used FROM mobile_auth_codes WHERE code=?1",
+        "SELECT user_id, expires_at FROM mobile_auth_codes WHERE code=?1",
         vec![js(&code)],
     )
     .await?;
