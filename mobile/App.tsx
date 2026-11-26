@@ -4,6 +4,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 import * as ImagePicker from "expo-image-picker";
+import * as Clipboard from "expo-clipboard";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -1510,6 +1511,7 @@ function You({
   const [target, setTarget] = useState(String(user.calorie_target));
   const [savingTarget, setSavingTarget] = useState(false);
   const [widgetToken, setWidgetToken] = useState("");
+  const [widgetCopied, setWidgetCopied] = useState(false);
   const [error, setError] = useState("");
 
   const toggle = async () => {
@@ -1555,6 +1557,11 @@ function You({
         body: "{}",
       });
       setWidgetToken(r.token);
+      try {
+        await Clipboard.setStringAsync(r.token);
+        setWidgetCopied(true);
+        setTimeout(() => setWidgetCopied(false), 2500);
+      } catch {}
     } catch (e) {
       setError(msg(e));
     }
@@ -1606,31 +1613,46 @@ function You({
         </View>
       </Pressable>
 
-      <View style={s.card}>
-        <Text style={s.cardTitle}>iPhone widget (free)</Text>
-        <Text style={s.mutedSmall}>
-          Native widgets need a paid Apple account. Use Scriptable for a free home-screen calorie widget.
-        </Text>
-        <Btn
-          label={widgetToken ? "Regenerate token" : "Generate widget token"}
-          onPress={generateWidgetToken}
-          variant="outline"
-          small
-        />
-        {widgetToken ? (
-          <>
-            <TextInput
-              value={widgetToken}
-              editable={false}
-              selectTextOnFocus
-              style={[s.input, { marginTop: 8, fontSize: fs(11) }]}
-            />
-            <Text style={s.tiny}>
-              Copy this into mobile/scriptable/MyCalsWidget.js, then add a Scriptable widget.
-            </Text>
-          </>
-        ) : null}
-      </View>
+      {Platform.OS === "ios" ? (
+        <View style={s.card}>
+          <Text style={s.cardTitle}>iPhone widget (free)</Text>
+          <Text style={s.mutedSmall}>
+            Native widgets need a paid Apple account. Use Scriptable for a free home-screen calorie widget.
+          </Text>
+          <Btn
+            label={
+              widgetCopied
+                ? "Copied to clipboard ✓"
+                : widgetToken
+                ? "Regenerate token"
+                : "Generate widget token"
+            }
+            onPress={generateWidgetToken}
+            variant="outline"
+            small
+          />
+          {widgetToken ? (
+            <>
+              <TextInput
+                value={widgetToken}
+                editable={false}
+                selectTextOnFocus
+                style={[s.input, { marginTop: 8, fontSize: fs(11) }]}
+              />
+              <Text style={s.tiny}>
+                The token is copied automatically. Paste it into mobile/scriptable/MyCalsWidget.js, then add a Scriptable widget.
+              </Text>
+            </>
+          ) : null}
+        </View>
+      ) : (
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Home screen widget</Text>
+          <Text style={s.mutedSmall}>
+            Long-press the home screen → Widgets → MyCals calories. Tap it to open the scanner.
+          </Text>
+        </View>
+      )}
 
       <Btn label="Sign out" onPress={onSignOut} variant="outline" />
       <Text style={[s.tiny, { textAlign: "center" }]}>
