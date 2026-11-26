@@ -43,6 +43,24 @@
           "photosPermission": "MyCals lets you scan a meal photo from your library.",
           "cameraPermission": "MyCals uses the camera to scan meals and nutrition labels."
         }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "MyCalsCalories",
+              "label": "MyCals calories",
+              "description": "Today's calories at a glance",
+              "minWidth": "160dp",
+              "minHeight": "80dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "updatePeriodMillis": 1800000,
+              "resizeMode": "horizontal|vertical"
+            }
+          ]
+        }
       ]
     ],
     "extra": {
