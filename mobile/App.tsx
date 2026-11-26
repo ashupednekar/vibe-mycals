@@ -1,5 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 import * as ImagePicker from "expo-image-picker";
@@ -388,16 +389,18 @@ export default function App() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar style="light" />
-      {!token || !user ? (
-        <Login onGoogle={startGoogle} />
-      ) : !user.onboarded ? (
-        <Onboarding token={token} onDone={setUser} />
-      ) : (
-        <Main token={token} user={user} onUser={setUser} onSignOut={signOut} />
-      )}
-    </View>
+    <SafeAreaProvider>
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <StatusBar style="light" />
+        {!token || !user ? (
+          <Login onGoogle={startGoogle} />
+        ) : !user.onboarded ? (
+          <Onboarding token={token} onDone={setUser} />
+        ) : (
+          <Main token={token} user={user} onUser={setUser} onSignOut={signOut} />
+        )}
+      </View>
+    </SafeAreaProvider>
   );
 }
 
@@ -601,15 +604,16 @@ function Main({
   onSignOut: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("today");
+  const insets = useSafeAreaInsets();
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
-      <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <View style={{ flex: 1, paddingTop: insets.top }}>
         {tab === "today" && <Today token={token} user={user} onScan={() => setTab("scan")} />}
         {tab === "scan" && <Scan token={token} onDone={() => setTab("today")} />}
         {tab === "family" && <Family token={token} user={user} />}
         {tab === "you" && <You token={token} user={user} onUser={onUser} onSignOut={onSignOut} />}
       </View>
-      <View style={s.tabbar}>
+      <View style={[s.tabbar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         {(
           [
             ["today", "home-outline", "Today"],
@@ -624,7 +628,7 @@ function Main({
           </Pressable>
         ))}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
