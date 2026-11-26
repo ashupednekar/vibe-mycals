@@ -1014,6 +1014,66 @@ function FoodSheet({
   );
 }
 
+function ScanPhotoSheet({
+  scan,
+  token,
+  onClose,
+  onUse,
+}: {
+  scan: StoredScan;
+  token: string;
+  onClose: () => void;
+  onUse: (scan: StoredScan) => void;
+}) {
+  return (
+    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#050807" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16 }}>
+          <Text style={s.eyebrow}>Scan photo</Text>
+          <Pressable onPress={onClose}>
+            <Ionicons name="close" size={24} color={C.ink} />
+          </Pressable>
+        </View>
+        {scan.image_url ? (
+          <Image
+            source={{
+              uri: `${API}${scan.image_url}`,
+              headers: { authorization: `Bearer ${token}` },
+            }}
+            style={{ width: "100%", height: 330, backgroundColor: "#000" }}
+            resizeMode="contain"
+          />
+        ) : (
+          <View style={{ height: 180, alignItems: "center", justifyContent: "center" }}>
+            <Text style={s.mutedSmall}>No photo saved for this scan.</Text>
+          </View>
+        )}
+        <ScrollView contentContainerStyle={{ padding: 18, gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+            <Text style={[s.selName, { flex: 1 }]}>{scan.name}</Text>
+            <Text style={s.previewKcal}>{Math.round(scan.kcal)}</Text>
+          </View>
+          <Text style={s.mutedSmall}>{scan.description}</Text>
+          <Text style={s.tiny}>{scan.created_at}</Text>
+          <View style={{ marginTop: 6 }}>
+            {scan.items.map((item, i) => (
+              <View key={i} style={s.entry}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.entryName}>{item.name}</Text>
+                  <Text style={s.mutedSmall}>{Math.round(item.grams)} g</Text>
+                </View>
+                <Text style={s.entryKcal}>{Math.round(item.kcal)}</Text>
+              </View>
+            ))}
+          </View>
+          <Btn label="Use this scan" onPress={() => onUse(scan)} />
+          <Btn label="Close" onPress={onClose} variant="outline" />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 // ------------------------------------------------------------------ scan
 
 function Scan({ token, onDone }: { token: string; onDone: () => void }) {
@@ -1026,6 +1086,7 @@ function Scan({ token, onDone }: { token: string; onDone: () => void }) {
   const [refineError, setRefineError] = useState("");
   const [refining, setRefining] = useState(false);
   const [history, setHistory] = useState<StoredScan[]>([]);
+  const [photoScan, setPhotoScan] = useState<StoredScan | null>(null);
 
   const loadHistory = async () => {
     try {
@@ -1259,15 +1320,7 @@ function Scan({ token, onDone }: { token: string; onDone: () => void }) {
             <SwipeRow key={h.id} onDelete={() => deleteScan(h.id)}>
               <Pressable
                 style={[s.card, { flexDirection: "row", alignItems: "center", gap: 10, padding: 10 }]}
-                onPress={() =>
-                  setResult({
-                    scan_id: h.id,
-                    name: h.name,
-                    description: h.description,
-                    items: h.items,
-                    confidence: h.confidence,
-                  })
-                }
+                onPress={() => setPhotoScan(h)}
               >
               {h.image_url ? (
                 <Image
@@ -1291,6 +1344,24 @@ function Scan({ token, onDone }: { token: string; onDone: () => void }) {
             </SwipeRow>
           ))}
         </View>
+      )}
+
+      {photoScan && (
+        <ScanPhotoSheet
+          scan={photoScan}
+          token={token}
+          onClose={() => setPhotoScan(null)}
+          onUse={(h) => {
+            setResult({
+              scan_id: h.id,
+              name: h.name,
+              description: h.description,
+              items: h.items,
+              confidence: h.confidence,
+            });
+            setPhotoScan(null);
+          }}
+        />
       )}
     </ScrollView>
   );
