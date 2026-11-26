@@ -41,6 +41,6 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: mobile-latest
-          name: Vibe MyCals mobile build
+          name: MyCals mobile build
           files: mycals.apk
           make_latest: true
