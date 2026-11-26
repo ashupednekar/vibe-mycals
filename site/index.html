@@ -118,6 +118,34 @@
   }
   @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
+
+<style>
+:root{--bg:#0b1210;--ink:#edf3ea;--muted:#95a39a;--line:#25332b;--card:#131e18;--green:#7bd88f;--lime:#d8f26b;}
+body{background:var(--bg);color:var(--ink)}
+header{background:rgba(11,18,16,.86);border-bottom-color:var(--line)}
+.links{color:var(--muted)}.links a:hover{color:var(--lime)}
+.btn-ghost{background:var(--card);border-color:var(--line);color:var(--ink)}
+.badge,.card,.step,.family-mock,.float{background:var(--card);border-color:var(--line)}
+.screen{background:#0f1813;color:var(--ink)}
+.s-top{color:var(--muted)}
+.ring-card,.meal{background:#17231c;border-color:var(--line)}
+.meal b,.ring-num,.s-title,.family-mock .who{color:var(--ink)}
+.meal span,.s-top,.lede,.section-head p,.card p,.step p,.family-mock .sub,.store-note,.bar-day,.download p{color:var(--muted)}
+.invite{background:linear-gradient(120deg,#131e18,#15261b);border-color:var(--line)}
+.member{border-bottom-color:var(--line)}
+.family-mock .bar{background:#1c2821}.family-mock .bar i{background:var(--green)}
+.download{background:#0e2b1f}
+.btn-green{background:var(--lime);color:#1c2a0b}
+.btn-dark{background:#16281f;color:var(--ink)}
+.store-note,.fineprint{color:var(--muted)}
+footer{border-top-color:var(--line);color:var(--muted)}
+.eyebrow{color:var(--green)}
+.mark{background:#1f7a4c;color:var(--lime)}
+.card .icon{background:#1f7a4c;color:var(--lime)}
+h1 em{color:var(--green)}
+.phone{box-shadow:0 45px 80px -40px rgba(0,0,0,.9)}
+.phone-stage:before{background:radial-gradient(circle at 60% 30%,#7bd88f33,transparent 62%),radial-gradient(circle at 30% 80%,#7bd88f18,transparent 55%)}
+</style>
 </head>
 <body>
 <header>
@@ -160,8 +188,8 @@
           <div class="ring-card">
             <div class="ring">
               <svg width="140" height="140" viewBox="0 0 140 140">
-                <circle cx="70" cy="70" r="56" fill="none" stroke="#efeee7" stroke-width="11"/>
-                <circle cx="70" cy="70" r="56" fill="none" stroke="#146b45" stroke-width="11" stroke-linecap="round" stroke-dasharray="246 352"/>
+                <circle cx="70" cy="70" r="56" fill="none" stroke="#24322a" stroke-width="11"/>
+                <circle cx="70" cy="70" r="56" fill="none" stroke="#7bd88f" stroke-width="11" stroke-linecap="round" stroke-dasharray="246 352"/>
               </svg>
               <div class="ring-num">1,240<small>of 1,750 kcal</small></div>
             </div>
@@ -170,7 +198,7 @@
           <div class="meal"><span class="e">🥣</span><b>Breakfast</b><span>310</span></div>
           <div class="meal"><span class="e">🥗</span><b>Lunch</b><span>640</span></div>
           <div class="meal"><span class="e">🍎</span><b>Snacks</b><span>290</span></div>
-          <div class="meal"><span class="e">📷</span><b style="color:#146b45">Scan food</b><span></span></div>
+          <div class="meal"><span class="e">📷</span><b style="color:#7bd88f">Scan food</b><span></span></div>
         </div>
       </div>
     </div>

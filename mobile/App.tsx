@@ -107,16 +107,17 @@ type MemberDay = {
 };
 
 const C = {
-  bg: "#f6f5f0",
-  card: "#ffffff",
-  ink: "#17251c",
-  muted: "#6d7a71",
-  line: "#e6e5dc",
-  green: "#146b45",
+  bg: "#0b1210",
+  card: "#131e18",
+  ink: "#edf3ea",
+  muted: "#95a39a",
+  line: "#25332b",
+  green: "#7bd88f",
+  greenDeep: "#1f7a4c",
   deep: "#0d3f2a",
-  soft: "#e3f2e8",
+  soft: "#1b2a22",
   lime: "#d8f26b",
-  coral: "#d9663f",
+  coral: "#ff8a65",
 };
 
 async function request<T>(path: string, token?: string | null, init?: RequestInit): Promise<T> {
@@ -227,10 +228,10 @@ function Avatar({ name, size = 38, tone = "neutral" }: { name: string; size?: nu
         borderRadius: size / 2,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: tone === "green" ? C.green : "#e9e7dc",
+        backgroundColor: tone === "green" ? C.green : "#26342c",
       }}
     >
-      <Text style={{ fontSize: size / 2.9, fontWeight: "800", color: tone === "green" ? C.lime : "#4b554d" }}>
+      <Text style={{ fontSize: size / 2.9, fontWeight: "800", color: tone === "green" ? C.lime : "#cfe0d5" }}>
         {initials(name)}
       </Text>
     </View>
@@ -258,7 +259,7 @@ function Field({
         onChangeText={onChange}
         keyboardType={numeric ? "numeric" : "default"}
         placeholder={placeholder}
-        placeholderTextColor="#a6ada6"
+        placeholderTextColor="#6f7f73"
         style={s.input}
       />
     </View>
@@ -269,7 +270,7 @@ function Banner({ text }: { text: string }) {
   if (!text) return null;
   return (
     <View style={s.banner}>
-      <Text style={{ color: "#8d3417", fontSize: 12.5, fontWeight: "600" }}>{text}</Text>
+      <Text style={{ color: "#ffb4a2", fontSize: 12.5, fontWeight: "600" }}>{text}</Text>
     </View>
   );
 }
@@ -366,7 +367,7 @@ export default function App() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       {!token || !user ? (
         <Login onGoogle={startGoogle} />
       ) : !user.onboarded ? (
@@ -635,6 +636,7 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
   const kcal = diary?.totals.kcal ?? 0;
   const target = diary?.targets.calorie ?? user.calorie_target;
   const left = Math.round(target - kcal);
+  const warning = kcal >= target * 0.8;
   const meals: [string, string, string][] = [
     ["breakfast", "Breakfast", "☀️"],
     ["lunch", "Lunch", "🥗"],
@@ -679,15 +681,15 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
           <Text style={s.mutedSmall}>{target} goal</Text>
         </View>
         <View style={s.calRow}>
-          <Text style={s.calBig}>{Math.round(kcal)}</Text>
+          <Text style={[s.calBig, warning && { color: C.coral }]}>{Math.round(kcal)}</Text>
           <View style={{ flex: 1 }}>
             <Text style={s.mutedSmall}>of {target} kcal</Text>
-            <Text style={[s.remaining, left < 0 && { color: C.coral }]}>
+            <Text style={[s.remaining, (left < 0 || warning) && { color: C.coral }]}>
               {left >= 0 ? `${left} left` : `${Math.abs(left)} over`}
             </Text>
           </View>
         </View>
-        <Progress value={target ? (kcal / target) * 100 : 0} tone={left < 0 ? C.coral : C.green} />
+        <Progress value={target ? (kcal / target) * 100 : 0} tone={warning ? C.coral : C.green} />
         <Pressable onPress={onScan} style={s.scanCta}>
           <Text style={{ fontSize: 16 }}>📷</Text>
           <Text style={s.scanCtaText}>Scan a plate or label</Text>
@@ -856,7 +858,7 @@ function FoodSheet({
                 value={q}
                 onChangeText={setQ}
                 placeholder="Search chicken, oats, dal…"
-                placeholderTextColor="#a6ada6"
+                placeholderTextColor="#6f7f73"
                 style={s.input}
               />
               <Banner text={error} />
@@ -1130,7 +1132,7 @@ function Family({ token, user }: { token: string; user: User }) {
         <ActivityIndicator color={C.green} style={{ marginTop: 30 }} />
       ) : family?.household ? (
         <>
-          <View style={[s.card, { backgroundColor: "#f3f9e9" }]}>
+          <View style={[s.card, { backgroundColor: "#1a2620" }]}>
             <Text style={s.eyebrow}>Invite code</Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 }}>
               <Text style={s.invite}>{family.household.invite_code}</Text>
@@ -1141,35 +1143,38 @@ function Family({ token, user }: { token: string; user: User }) {
           </View>
 
           <Text style={[s.cardTitle, { marginTop: 4 }]}>Today · {prettyDate(todayStr())}</Text>
-          {family.members.map((m) => (
-            <Pressable key={m.id} onPress={() => setMember(m)} style={s.card}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <Avatar name={m.name} tone={m.id === user.id ? "green" : "neutral"} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.memberName}>
-                    {m.name} {m.id === user.id ? "· you" : ""}
-                  </Text>
-                  <Text style={s.mutedSmall}>{Math.round(m.kcal)} kcal logged</Text>
+          {family.members.map((m) => {
+            const warn = m.kcal >= m.calorie_target * 0.8;
+            return (
+              <Pressable key={m.id} onPress={() => setMember(m)} style={s.card}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <Avatar name={m.name} tone={m.id === user.id ? "green" : "neutral"} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.memberName}>
+                      {m.name} {m.id === user.id ? "· you" : ""}
+                    </Text>
+                    <Text style={s.mutedSmall}>{Math.round(m.kcal)} kcal logged</Text>
+                  </View>
+                  {!m.share_diary && m.id !== user.id ? (
+                    <Text>🔒</Text>
+                  ) : (
+                    <Text style={[s.pct, warn && { color: C.coral }]}>
+                      {Math.round((m.kcal / Math.max(1, m.calorie_target)) * 100)}%
+                    </Text>
+                  )}
                 </View>
-                {!m.share_diary && m.id !== user.id ? (
-                  <Text>🔒</Text>
-                ) : (
-                  <Text style={s.pct}>
-                    {Math.round((m.kcal / Math.max(1, m.calorie_target)) * 100)}%
-                  </Text>
-                )}
-              </View>
-              <View style={{ marginTop: 10 }}>
-                <Progress
-                  value={(m.kcal / Math.max(1, m.calorie_target)) * 100}
-                  tone={m.kcal > m.calorie_target ? C.coral : C.green}
-                />
-              </View>
-              <Text style={[s.mutedSmall, { marginTop: 6 }]}>
-                {Math.round(m.kcal)} / {m.calorie_target} kcal
-              </Text>
-            </Pressable>
-          ))}
+                <View style={{ marginTop: 10 }}>
+                  <Progress
+                    value={(m.kcal / Math.max(1, m.calorie_target)) * 100}
+                    tone={warn ? C.coral : C.green}
+                  />
+                </View>
+                <Text style={[s.mutedSmall, { marginTop: 6 }]}>
+                  {Math.round(m.kcal)} / {m.calorie_target} kcal
+                </Text>
+              </Pressable>
+            );
+          })}
           <Btn label="Leave family" onPress={leave} variant="outline" small />
         </>
       ) : (
@@ -1184,7 +1189,7 @@ function Family({ token, user }: { token: string; user: User }) {
                   value={name}
                   onChangeText={setName}
                   placeholder="Family name (optional)"
-                  placeholderTextColor="#a6ada6"
+                  placeholderTextColor="#6f7f73"
                   style={s.input}
                 />
               ),
@@ -1200,7 +1205,7 @@ function Family({ token, user }: { token: string; user: User }) {
                   onChangeText={(v) => setJoinCode(v.toUpperCase())}
                   placeholder="e.g. DEMO42"
                   autoCapitalize="characters"
-                  placeholderTextColor="#a6ada6"
+                  placeholderTextColor="#6f7f73"
                   style={s.input}
                 />
               ),
@@ -1262,10 +1267,15 @@ function MemberSheet({
           {day ? (
             <>
               <View style={[s.card, { alignItems: "center" }]}>
-                <Text style={s.calBig}>{Math.round(day.totals.kcal)}</Text>
+                <Text style={[s.calBig, day.totals.kcal >= day.calorie_target * 0.8 && { color: C.coral }]}>
+                  {Math.round(day.totals.kcal)}
+                </Text>
                 <Text style={s.mutedSmall}>of {day.calorie_target} kcal</Text>
                 <View style={{ width: "100%", marginTop: 10 }}>
-                  <Progress value={(day.totals.kcal / Math.max(1, day.calorie_target)) * 100} />
+                  <Progress
+                    value={(day.totals.kcal / Math.max(1, day.calorie_target)) * 100}
+                    tone={day.totals.kcal >= day.calorie_target * 0.8 ? C.coral : C.green}
+                  />
                 </View>
               </View>
               <View style={s.card}>
@@ -1389,7 +1399,7 @@ function You({
           <Text style={s.cardTitle}>Share my diary</Text>
           <Text style={s.mutedSmall}>Let your family see your meals and calories.</Text>
         </View>
-        <View style={[s.toggle, share && { backgroundColor: C.green }]}>
+        <View style={[s.toggle, share && { backgroundColor: C.greenDeep }]}>
           <View style={[s.knob, share && { alignSelf: "flex-end" }]} />
         </View>
       </Pressable>
@@ -1419,7 +1429,7 @@ const s = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 13,
-    backgroundColor: C.green,
+    backgroundColor: C.greenDeep,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1450,15 +1460,15 @@ const s = StyleSheet.create({
   chipText: { fontSize: 11.5, fontWeight: "600", color: C.muted },
   btn: { borderRadius: 999, paddingVertical: 13, paddingHorizontal: 20, alignItems: "center", justifyContent: "center" },
   btnSmall: { paddingVertical: 9, paddingHorizontal: 14 },
-  btnPrimary: { backgroundColor: C.green },
+  btnPrimary: { backgroundColor: C.greenDeep },
   btnGhost: { backgroundColor: C.soft },
-  btnOutline: { backgroundColor: C.card, borderWidth: 1, borderColor: "#d8d7cc" },
+  btnOutline: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line },
   btnLime: { backgroundColor: C.lime },
   btnText: { fontSize: 14, fontWeight: "700", color: C.ink },
   btnTextLight: { color: "#fff" },
   input: {
     borderWidth: 1,
-    borderColor: "#d8d7cc",
+    borderColor: C.line,
     backgroundColor: C.card,
     borderRadius: 12,
     paddingHorizontal: 13,
@@ -1468,9 +1478,9 @@ const s = StyleSheet.create({
   },
   fieldLabel: { fontSize: 12, fontWeight: "700", color: C.muted, marginBottom: 2 },
   banner: {
-    backgroundColor: "#fbe9e2",
+    backgroundColor: "#3a1d15",
     borderWidth: 1,
-    borderColor: "#f2cab9",
+    borderColor: "#5a2f21",
     borderRadius: 12,
     padding: 11,
   },
@@ -1491,13 +1501,13 @@ const s = StyleSheet.create({
   calRow: { flexDirection: "row", alignItems: "flex-end", gap: 12, marginVertical: 6 },
   calBig: { fontFamily: "Georgia", fontSize: 50, lineHeight: 54, letterSpacing: -1.5, color: C.ink },
   remaining: { fontSize: 12, fontWeight: "700", color: C.green },
-  track: { height: 8, borderRadius: 99, backgroundColor: "#efeee7", overflow: "hidden", marginTop: 6 },
+  track: { height: 8, borderRadius: 99, backgroundColor: "#24322a", overflow: "hidden", marginTop: 6 },
   fill: { height: "100%", borderRadius: 99 },
   scanCta: {
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
-    backgroundColor: "#f7f8f2",
+    backgroundColor: "#1a2620",
     borderRadius: 14,
     padding: 12,
     marginTop: 14,
@@ -1508,12 +1518,12 @@ const s = StyleSheet.create({
   addBtn: { width: 27, height: 27, borderRadius: 999, backgroundColor: C.soft, alignItems: "center", justifyContent: "center" },
   addBtnText: { fontSize: 18, color: C.green, marginTop: -2 },
   empty: { fontSize: 12, color: C.muted, paddingVertical: 10 },
-  entry: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#f1f0e9" },
+  entry: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: C.line },
   entryName: { fontSize: 13.5, fontWeight: "600", color: C.ink },
   entryKcal: { fontSize: 13, fontWeight: "700", color: C.ink },
   tabbar: {
     flexDirection: "row",
-    backgroundColor: "#fbfaf6",
+    backgroundColor: "#0f1813",
     borderTopWidth: 1,
     borderTopColor: C.line,
     paddingVertical: 7,
@@ -1530,13 +1540,13 @@ const s = StyleSheet.create({
     gap: 10,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#f1f0e9",
+    borderBottomColor: C.line,
   },
   foodName: { fontSize: 14, fontWeight: "600", color: C.ink },
   foodKcal: { fontSize: 12.5, fontWeight: "700", color: C.muted },
   closeBtn: { width: 34, height: 34, borderRadius: 999, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, alignItems: "center", justifyContent: "center" },
   preview: { width: "100%", height: 240, borderRadius: 16 },
-  scanDrop: { alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 36, borderWidth: 1.5, borderStyle: "dashed", borderColor: "#d8d7cc", borderRadius: 18, backgroundColor: "#fbfbf7" },
+  scanDrop: { alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 36, borderWidth: 1.5, borderStyle: "dashed", borderColor: C.line, borderRadius: 18, backgroundColor: "#101a14" },
   invite: { fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: 30, fontWeight: "700", letterSpacing: 3, color: C.green },
   memberName: { fontSize: 14, fontWeight: "700", color: C.ink },
   pct: { fontSize: 13, fontWeight: "800", color: C.green },
@@ -1546,6 +1556,6 @@ const s = StyleSheet.create({
   pillActive: { backgroundColor: C.green, borderColor: C.green },
   pillText: { fontSize: 12, fontWeight: "600", color: C.muted },
   pillTextActive: { color: "#fff" },
-  toggle: { width: 46, height: 27, borderRadius: 99, backgroundColor: "#dcdcd2", padding: 3, justifyContent: "center" },
+  toggle: { width: 46, height: 27, borderRadius: 99, backgroundColor: "#3a4a40", padding: 3, justifyContent: "center" },
   knob: { width: 21, height: 21, borderRadius: 99, backgroundColor: "#fff" },
 });

@@ -468,6 +468,7 @@ fn Today() -> Element {
         let target = d.targets.calorie.max(1) as f64;
         let pct = (d.totals.kcal / target).clamp(0.0, 1.25);
         let remaining = (d.targets.calorie as f64 - d.totals.kcal).round();
+        let warning = d.totals.kcal >= target * 0.8;
         let meals = [
             ("breakfast", "Breakfast", "☀️"),
             ("lunch", "Lunch", "🥗"),
@@ -517,19 +518,19 @@ fn Today() -> Element {
                         }
                         div { class: "ring-wrap",
                             svg { view_box: "0 0 120 120", class: "ring",
-                                circle { cx: "60", cy: "60", r: "50", fill: "none", stroke: "#ecebe4", stroke_width: "10" }
+                                circle { cx: "60", cy: "60", r: "50", fill: "none", stroke: "#24322a", stroke_width: "10" }
                                 circle {
                                     cx: "60", cy: "60", r: "50", fill: "none",
-                                    stroke: if remaining < 0.0 { "#e2704c" } else { "#1f7a4c" },
+                                    stroke: if warning { "#ff8a65" } else { "#7bd88f" },
                                     stroke_width: "10", stroke_linecap: "round",
                                     stroke_dasharray: format!("{:.1} 320", (pct.min(1.0) * 314.0)),
                                     transform: "rotate(-90 60 60)"
                                 }
                             }
                             div { class: "ring-center",
-                                div { class: "ring-num", "{d.totals.kcal.round()}" }
+                                div { class: if warning { "ring-num over" } else { "ring-num" }, "{d.totals.kcal.round()}" }
                                 div { class: "ring-label", "of {d.targets.calorie}" }
-                                div { class: if remaining < 0.0 { "ring-left over" } else { "ring-left" },
+                                div { class: if warning { "ring-left over" } else { "ring-left" },
                                 if remaining >= 0.0 { "{remaining} left" } else { {format!("{} over", remaining.abs())} }
                             }
                             }
@@ -545,7 +546,7 @@ fn Today() -> Element {
                                 div { class: "bar-col", title: "{day.date}: {day.kcal.round()} kcal",
                                     div { class: "bar-track",
                                         div {
-                                            class: "bar",
+                                            class: if day.kcal >= d.targets.calorie as f64 * 0.8 { "bar over" } else { "bar" },
                                             style: format!("height:{:.0}%", (day.kcal / max_day * 100.0).clamp(3.0, 100.0))
                                         }
                                     }
@@ -1081,12 +1082,12 @@ fn Family() -> Element {
                                     if !m.share_diary && m.id != user.id {
                                         span { class: "lock", "🔒" }
                                     } else {
-                                        span { class: "member-pct", {format!("{:.0}%", (m.kcal / m.calorie_target.max(1) as f64 * 100.0).min(999.0))} }
+                                        span { class: if m.kcal >= m.calorie_target as f64 * 0.8 { "member-pct over" } else { "member-pct" }, {format!("{:.0}%", (m.kcal / m.calorie_target.max(1) as f64 * 100.0).min(999.0))} }
                                     }
                                 }
                                 div { class: "member-track",
                                     div {
-                                        class: if m.kcal > m.calorie_target as f64 { "member-fill over" } else { "member-fill" },
+                                        class: if m.kcal >= m.calorie_target as f64 * 0.8 { "member-fill over" } else { "member-fill" },
                                         style: format!("width:{:.0}%", (m.kcal / m.calorie_target.max(1) as f64 * 100.0).clamp(0.0, 100.0))
                                     }
                                 }
@@ -1159,8 +1160,8 @@ fn MemberModal(member: FamilyMember, date: String, on_close: EventHandler<()>) -
                     button { class: "x", onclick: move |_| on_close.call(()), "×" }
                 }
                 if let Some(d) = data {
-                    div { class: "member-summary",
-                        div { class: "ring-num", "{d.totals.kcal.round()}" }
+                    div { class: if d.totals.kcal >= d.calorie_target as f64 * 0.8 { "member-summary warn" } else { "member-summary" },
+                        div { class: if d.totals.kcal >= d.calorie_target as f64 * 0.8 { "ring-num over" } else { "ring-num" }, "{d.totals.kcal.round()}" }
                         div { class: "muted tiny", "of {d.calorie_target} kcal" }
                     }
                     div { class: "member-entries",
