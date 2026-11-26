@@ -6,8 +6,9 @@ export function CalorieWidget({ kcal, target }: { kcal: number; target: number }
   const warning = pct >= 0.8;
   return (
     <FlexWidget
-      clickAction="OPEN_APP"
-      accessibilityLabel="Open MyCals"
+      clickAction="OPEN_URI"
+      clickActionData={{ uri: "mycals://scan" }}
+      accessibilityLabel="Open MyCals scanner"
       style={{
         width: "match_parent",
         height: "match_parent",

@@ -13,6 +13,7 @@ const widget = new ListWidget();
 widget.backgroundColor = new Color("#0b1210");
 widget.setPadding(14, 14, 14, 14);
 widget.refreshAfterDate = new Date(Date.now() + 30 * 60 * 1000);
+widget.url = "mycals://scan";
 
 async function build() {
   const req = new Request(`${API}/api/widget/summary?token=${encodeURIComponent(TOKEN)}&date=${date}`);

@@ -4,12 +4,13 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 import * as ImagePicker from "expo-image-picker";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -312,6 +313,7 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [scanTick, setScanTick] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -327,6 +329,19 @@ export default function App() {
       }
       setBooting(false);
     })();
+  }, []);
+
+  useEffect(() => {
+    const handle = ({ url }: { url: string }) => {
+      if (url.startsWith("mycals://scan")) setScanTick((n) => n + 1);
+    };
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) handle({ url });
+      })
+      .catch(() => {});
+    const sub = Linking.addEventListener("url", handle);
+    return () => sub.remove();
   }, []);
 
   const signIn = async (t: string) => {
@@ -397,7 +412,7 @@ export default function App() {
         ) : !user.onboarded ? (
           <Onboarding token={token} onDone={setUser} />
         ) : (
-          <Main token={token} user={user} onUser={setUser} onSignOut={signOut} />
+          <Main token={token} user={user} onUser={setUser} onSignOut={signOut} scanTick={scanTick} />
         )}
       </View>
     </SafeAreaProvider>
@@ -597,14 +612,19 @@ function Main({
   user,
   onUser,
   onSignOut,
+  scanTick,
 }: {
   token: string;
   user: User;
   onUser: (u: User) => void;
   onSignOut: () => void;
+  scanTick: number;
 }) {
   const [tab, setTab] = useState<Tab>("today");
   const insets = useSafeAreaInsets();
+  useEffect(() => {
+    if (scanTick > 0) setTab("scan");
+  }, [scanTick]);
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <View style={{ flex: 1, paddingTop: insets.top }}>
@@ -987,6 +1007,14 @@ function Scan({ token, onDone }: { token: string; onDone: () => void }) {
       setResult(null);
     }
   };
+
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (!autoOpened.current) {
+      autoOpened.current = true;
+      pick(true);
+    }
+  }, []);
 
   const analyze = async () => {
     if (!asset?.base64) {
