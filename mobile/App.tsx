@@ -711,6 +711,7 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
   const [error, setError] = useState("");
   const [sheet, setSheet] = useState<string | null>(null);
   const [correcting, setCorrecting] = useState<Entry | null>(null);
+  const [openScan, setOpenScan] = useState<StoredScan | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -739,6 +740,15 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
     ["dinner", "Dinner", "moon-outline"],
     ["snacks", "Snacks", "nutrition-outline"],
   ];
+
+  const openEntryScan = async (entry: Entry) => {
+    if (!entry.scan_id) return;
+    try {
+      setOpenScan(await request<StoredScan>(`/api/scans/${entry.scan_id}`, token));
+    } catch (e) {
+      setError(msg(e));
+    }
+  };
 
   const moveEntry = (entry: Entry) => {
     Alert.alert("Move entry", entry.name, [
@@ -846,6 +856,7 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
                   <Pressable
                     key={e.id}
                     style={s.entry}
+                    onPress={() => openEntryScan(e)}
                     onLongPress={() => moveEntry(e)}
                     delayLongPress={350}
                   >
@@ -893,6 +904,10 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
             load();
           }}
         />
+      )}
+
+      {openScan && (
+        <ScanPhotoSheet scan={openScan} token={token} onClose={() => setOpenScan(null)} />
       )}
     </ScrollView>
   );
@@ -1758,6 +1773,15 @@ function MemberSheet({
     load();
   }, [load]);
 
+  const openEntryScan = async (entry: Entry) => {
+    if (!entry.scan_id) return;
+    try {
+      setPhotoScan(await request<StoredScan>(`/api/scans/${entry.scan_id}`, token));
+    } catch (e) {
+      setError(msg(e));
+    }
+  };
+
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
@@ -1807,15 +1831,16 @@ function MemberSheet({
                   <Text style={s.empty}>Nothing logged on this day.</Text>
                 ) : (
                   day.entries.map((e) => (
-                    <View key={e.id} style={s.entry}>
+                    <Pressable key={e.id} style={s.entry} onPress={() => openEntryScan(e)}>
                       <View style={{ flex: 1 }}>
                         <Text style={s.entryName}>{e.name}</Text>
                         <Text style={s.mutedSmall}>
                           {e.meal} · {Math.round(e.grams)} g
                         </Text>
                       </View>
+                      {e.scan_id && <Ionicons name="image-outline" size={15} color={C.muted} />}
                       <Text style={s.entryKcal}>{Math.round(e.kcal)}</Text>
-                    </View>
+                    </Pressable>
                   ))
                 )}
               </View>

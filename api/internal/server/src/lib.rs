@@ -99,6 +99,10 @@ async fn dispatch(mut req: Request, env: Env) -> Result<Response> {
         let id = path.trim_start_matches("/api/scans/").to_string();
         return delete_scan(&req, &env, &id).await;
     }
+    if method == "GET" && path.starts_with("/api/scans/") && !path.ends_with("/image") {
+        let id = path.trim_start_matches("/api/scans/").trim_end_matches('/').to_string();
+        return get_scan(&req, &env, &id).await;
+    }
     if method == "GET" && path.starts_with("/api/scans/") && path.ends_with("/image") {
         let id = path
             .trim_start_matches("/api/scans/")
@@ -1013,6 +1017,60 @@ async fn scan_food(req: &mut Request, env: &Env) -> Result<Response> {
     json(&result, 200)
 }
 
+async fn get_scan(req: &Request, env: &Env, id: &str) -> Result<Response> {
+    let Some(user) = current_user(req, env).await? else {
+        return Ok(err(401, "Sign in to continue"));
+    };
+    let db = env.d1("DB")?;
+    #[derive(Deserialize)]
+    struct Row {
+        id: String,
+        owner_id: String,
+        name: String,
+        description: String,
+        confidence: f64,
+        items_json: String,
+        kcal: f64,
+        image_key: Option<String>,
+        created_at: String,
+        household_id: Option<String>,
+        share_diary: i64,
+    }
+    let row: Option<Row> = one(
+        &db,
+        "SELECT s.id, s.user_id AS owner_id, s.name, s.description, s.confidence,
+                s.items_json, s.kcal, s.image_key, s.created_at,
+                u.household_id, u.share_diary
+         FROM scans s JOIN users u ON u.id = s.user_id WHERE s.id=?1",
+        vec![js(id)],
+    )
+    .await?;
+    let Some(row) = row else {
+        return Ok(err(404, "Scan not found"));
+    };
+    let family_visible = user.household_id.is_some()
+        && user.household_id == row.household_id
+        && row.share_diary != 0;
+    if row.owner_id != user.id && !family_visible {
+        return Ok(err(404, "Scan not found"));
+    }
+    let items: Vec<ScanItem> = serde_json::from_str(&row.items_json).unwrap_or_default();
+    let image_url = row.image_key.map(|_| format!("/api/scans/{}/image", row.id));
+    json(
+        &StoredScan {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            confidence: row.confidence,
+            items,
+            kcal: row.kcal,
+            image_url,
+            created_at: row.created_at,
+        },
+        200,
+    )
+}
+
 async fn list_scans(req: &Request, env: &Env) -> Result<Response> {
     let Some(user) = current_user(req, env).await? else {
         return Ok(err(401, "Sign in to continue"));
@@ -1444,16 +1502,30 @@ async fn family_payload(db: &D1Database, user: &User, date: Option<&str>) -> Res
         return json(&FamilyResponse { household: None, members: vec![], is_owner: false }, 200);
     };
     let members: Vec<User> = all(db, "SELECT * FROM users WHERE household_id=?1 ORDER BY created_at", vec![js(hid)]).await?;
+    #[derive(Deserialize)]
+    struct SumRow {
+        user_id: String,
+        kcal: f64,
+        protein: f64,
+        entry_count: i64,
+    }
+    let sums: Vec<SumRow> = all(
+        db,
+        "SELECT user_id, COALESCE(SUM(kcal),0) AS kcal, COALESCE(SUM(protein),0) AS protein,
+                COUNT(*) AS entry_count
+         FROM diary_entries
+         WHERE log_date=?1 AND user_id IN (SELECT id FROM users WHERE household_id=?2)
+         GROUP BY user_id",
+        vec![js(&date), js(hid)],
+    )
+    .await?;
     let mut out = Vec::new();
     for m in members {
-        let s: Option<Sum> = one(
-            db,
-            "SELECT COALESCE(SUM(kcal),0) AS kcal, COALESCE(SUM(protein),0) AS protein, COUNT(*) AS entry_count
-             FROM diary_entries WHERE user_id=?1 AND log_date=?2",
-            vec![js(&m.id), js(&date)],
-        )
-        .await?;
-        let s = s.unwrap_or_default();
+        let s = sums
+            .iter()
+            .find(|s| s.user_id == m.id)
+            .map(|s| Sum { kcal: s.kcal, protein: s.protein, entry_count: s.entry_count })
+            .unwrap_or_default();
         out.push(FamilyMember {
             id: m.id.clone(),
             name: m.name.clone(),
