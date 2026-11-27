@@ -57,6 +57,8 @@ type Entry = {
   name: string;
   grams: number;
   kcal: number;
+  scan_id?: string | null;
+  scan_item?: number | null;
 };
 
 type Diary = {
@@ -708,6 +710,7 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [sheet, setSheet] = useState<string | null>(null);
+  const [correcting, setCorrecting] = useState<Entry | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -853,6 +856,11 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
                       </Text>
                       <Text style={s.mutedSmall}>{Math.round(e.grams)} g</Text>
                     </View>
+                    {e.scan_id && (
+                      <Pressable onPress={() => setCorrecting(e)} hitSlop={8} style={{ paddingHorizontal: 4 }}>
+                        <Ionicons name="create-outline" size={16} color={C.green} />
+                      </Pressable>
+                    )}
                     <Text style={s.entryKcal}>{Math.round(e.kcal)}</Text>
                   </Pressable>
                 ))
@@ -874,7 +882,96 @@ function Today({ token, user, onScan }: { token: string; user: User; onScan: () 
           }}
         />
       )}
+
+      {correcting && (
+        <EntryCorrectSheet
+          token={token}
+          entry={correcting}
+          onClose={() => setCorrecting(null)}
+          onDone={() => {
+            setCorrecting(null);
+            load();
+          }}
+        />
+      )}
     </ScrollView>
+  );
+}
+
+function EntryCorrectSheet({
+  token,
+  entry,
+  onClose,
+  onDone,
+}: {
+  token: string;
+  entry: Entry;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (prompt.trim().length < 2) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await request<RefineResponse>(`/api/diary/entries/${entry.id}/correct`, token, {
+        method: "POST",
+        body: JSON.stringify({ prompt: prompt.trim() }),
+      });
+      if (r.valid) {
+        onDone();
+      } else {
+        setError(r.reason || "That doesn't look like a portion correction.");
+      }
+    } catch (e) {
+      setError(msg(e));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
+        <ScrollView contentContainerStyle={{ padding: 18, gap: 12 }} keyboardShouldPersistTaps="handled">
+          <View style={s.rowBetween}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.eyebrow}>Correct item</Text>
+              <Text style={s.h2} numberOfLines={1}>{entry.name}</Text>
+            </View>
+            <Pressable onPress={onClose} style={s.closeBtn}>
+              <Text style={{ fontSize: fs(22), color: C.muted }}>×</Text>
+            </Pressable>
+          </View>
+          <View style={[s.card, { flexDirection: "row", gap: 18 }]}>
+            <View>
+              <Text style={s.mutedSmall}>Portion</Text>
+              <Text style={s.entryName}>{Math.round(entry.grams)} g</Text>
+            </View>
+            <View>
+              <Text style={s.mutedSmall}>Calories</Text>
+              <Text style={s.entryName}>{Math.round(entry.kcal)} kcal</Text>
+            </View>
+          </View>
+          <Text style={s.fieldLabel}>What should change?</Text>
+          <TextInput
+            value={prompt}
+            onChangeText={setPrompt}
+            placeholder="e.g. half the portion, 200 g, only 5 pieces"
+            placeholderTextColor="#6f7f73"
+            style={s.input}
+            autoFocus
+          />
+          <Banner text={error} />
+          <Btn label={busy ? "Correcting…" : "Apply correction"} onPress={submit} disabled={busy || prompt.trim().length < 2} />
+          <Btn label="Cancel" onPress={onClose} variant="outline" />
+          <Text style={s.tiny}>Only portion changes are accepted. The dish stays the same.</Text>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
   );
 }
 
@@ -1014,6 +1111,85 @@ function FoodSheet({
   );
 }
 
+function ZoomableImage({ uri, headers }: { uri: string; headers?: Record<string, string> }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const tx = useRef(new Animated.Value(0)).current;
+  const ty = useRef(new Animated.Value(0)).current;
+  const g = useRef({
+    scale: 1, tx: 0, ty: 0, startDist: 0, startScale: 1, startTx: 0, startTy: 0,
+    lastTap: 0, moved: false,
+  });
+  const distance = (touches: readonly { pageX: number; pageY: number }[]) =>
+    Math.hypot(touches[0].pageX - touches[1].pageX, touches[0].pageY - touches[1].pageY);
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const reset = () => {
+    g.current.scale = 1; g.current.tx = 0; g.current.ty = 0;
+    scale.setValue(1); tx.setValue(0); ty.setValue(0);
+  };
+  const responder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        const t = evt.nativeEvent.touches;
+        g.current.startDist = t.length >= 2 ? distance(t) : 0;
+        g.current.startScale = g.current.scale;
+        g.current.startTx = g.current.tx;
+        g.current.startTy = g.current.ty;
+        g.current.moved = false;
+      },
+      onPanResponderMove: (evt, gesture) => {
+        const t = evt.nativeEvent.touches;
+        if (t.length >= 2 && g.current.startDist > 0) {
+          const next = clamp(g.current.startScale * (distance(t) / g.current.startDist), 1, 4);
+          g.current.scale = next;
+          scale.setValue(next);
+          if (next <= 1) {
+            g.current.tx = 0; g.current.ty = 0;
+            tx.setValue(0); ty.setValue(0);
+          }
+        } else if (g.current.scale > 1) {
+          const nx = g.current.startTx + gesture.dx;
+          const ny = g.current.startTy + gesture.dy;
+          g.current.tx = nx; g.current.ty = ny;
+          tx.setValue(nx); ty.setValue(ny);
+        }
+        if (Math.abs(gesture.dx) > 6 || Math.abs(gesture.dy) > 6) g.current.moved = true;
+      },
+      onPanResponderRelease: () => {
+        const now = Date.now();
+        if (!g.current.moved && now - g.current.lastTap < 300) {
+          const next = g.current.scale > 1 ? 1 : 2.5;
+          g.current.scale = next;
+          scale.setValue(next);
+          if (next === 1) {
+            g.current.tx = 0; g.current.ty = 0;
+            tx.setValue(0); ty.setValue(0);
+          }
+          g.current.lastTap = 0;
+        } else {
+          g.current.lastTap = now;
+        }
+        if (g.current.scale < 1.05) reset();
+      },
+    })
+  ).current;
+
+  return (
+    <View style={{ width: "100%", height: 330, backgroundColor: "#000", overflow: "hidden" }}>
+      <Animated.Image
+        {...responder.panHandlers}
+        source={{ uri, headers }}
+        resizeMode="contain"
+        style={{ width: "100%", height: "100%", transform: [{ scale }, { translateX: tx }, { translateY: ty }] }}
+      />
+      <Text style={[s.tiny, { position: "absolute", bottom: 8, alignSelf: "center", color: "#9fb3a6" }]}>
+        Pinch or double-tap to zoom
+      </Text>
+    </View>
+  );
+}
+
 function ScanPhotoSheet({
   scan,
   token,
@@ -1035,13 +1211,9 @@ function ScanPhotoSheet({
           </Pressable>
         </View>
         {scan.image_url ? (
-          <Image
-            source={{
-              uri: `${API}${scan.image_url}`,
-              headers: { authorization: `Bearer ${token}` },
-            }}
-            style={{ width: "100%", height: 330, backgroundColor: "#000" }}
-            resizeMode="contain"
+          <ZoomableImage
+            uri={`${API}${scan.image_url}`}
+            headers={{ authorization: `Bearer ${token}` }}
           />
         ) : (
           <View style={{ height: 180, alignItems: "center", justifyContent: "center" }}>
@@ -1188,7 +1360,7 @@ function Scan({ token, onDone }: { token: string; onDone: () => void }) {
     setBusy(true);
     setError("");
     try {
-      for (const item of result.items) {
+      for (const [i, item] of result.items.entries()) {
         await request("/api/diary/entries", token, {
           method: "POST",
           body: JSON.stringify({
@@ -1200,6 +1372,8 @@ function Scan({ token, onDone }: { token: string; onDone: () => void }) {
             protein: item.protein,
             carbs: item.carbs,
             fat: item.fat,
+            scan_id: result.scan_id ?? null,
+            scan_item: i,
           }),
         });
       }

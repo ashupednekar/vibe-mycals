@@ -75,6 +75,14 @@ async fn dispatch(mut req: Request, env: Env) -> Result<Response> {
         _ => {}
     }
 
+    if method == "POST" && path.starts_with("/api/diary/entries/") && path.ends_with("/correct") {
+        let id = path
+            .trim_start_matches("/api/diary/entries/")
+            .trim_end_matches("correct")
+            .trim_end_matches('/')
+            .to_string();
+        return correct_entry(&mut req, &env, &id).await;
+    }
     if method == "PATCH" && path.starts_with("/api/diary/entries/") {
         let id = path.trim_start_matches("/api/diary/entries/").to_string();
         return patch_entry(&mut req, &env, &id).await;
@@ -463,7 +471,7 @@ async fn day_entries(
     };
     let entries: Vec<DiaryEntry> = all(
         db,
-        "SELECT id, log_date, meal, food_id, name, grams, kcal, protein, carbs, fat
+        "SELECT id, log_date, meal, food_id, name, grams, kcal, protein, carbs, fat, scan_id, scan_item
          FROM diary_entries WHERE user_id=?1 AND log_date=?2 ORDER BY created_at, rowid",
         vec![js(user_id), js(&date)],
     )
@@ -525,16 +533,29 @@ async fn add_entry(req: &mut Request, env: &Env) -> Result<Response> {
             },
         )
     };
+    if let Some(sid) = input.scan_id.as_deref() {
+        let owned: Option<Count> = one(
+            &db,
+            "SELECT COUNT(*) AS n FROM scans WHERE id=?1 AND user_id=?2",
+            vec![js(sid), js(&user.id)],
+        )
+        .await?;
+        if owned.map(|c| c.n).unwrap_or(0) == 0 {
+            return Ok(err(400, "Scan not found"));
+        }
+    }
     let id = new_id("ent");
     exec(
         &db,
-        "INSERT INTO diary_entries (id, user_id, log_date, meal, food_id, name, grams, kcal, protein, carbs, fat)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO diary_entries (id, user_id, log_date, meal, food_id, name, grams, kcal, protein, carbs, fat, scan_id, scan_item)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         vec![
             js(&id), js(&user.id), js(&input.date), js(&input.meal),
             input.food_id.clone().map(|f| js(&f)).unwrap_or(JsValue::NULL),
             js(&name), jn(grams), jn(totals.kcal), jn(totals.protein),
             jn(totals.carbs), jn(totals.fat),
+            input.scan_id.clone().map(|s| js(&s)).unwrap_or(JsValue::NULL),
+            input.scan_item.map(|i| jn(i as f64)).unwrap_or(JsValue::NULL),
         ],
     )
     .await?;
@@ -550,6 +571,8 @@ async fn add_entry(req: &mut Request, env: &Env) -> Result<Response> {
             protein: totals.protein,
             carbs: totals.carbs,
             fat: totals.fat,
+            scan_id: input.scan_id,
+            scan_item: input.scan_item,
         },
         201,
     )
@@ -578,7 +601,7 @@ async fn patch_entry(req: &mut Request, env: &Env, id: &str) -> Result<Response>
     let db = env.d1("DB")?;
     let entry: Option<DiaryEntry> = one(
         &db,
-        "SELECT id, log_date, meal, food_id, name, grams, kcal, protein, carbs, fat
+        "SELECT id, log_date, meal, food_id, name, grams, kcal, protein, carbs, fat, scan_id, scan_item
          FROM diary_entries WHERE id=?1 AND user_id=?2",
         vec![js(id), js(&user.id)],
     )
@@ -604,6 +627,132 @@ async fn patch_entry(req: &mut Request, env: &Env, id: &str) -> Result<Response>
     )
     .await?;
     json(&entry, 200)
+}
+
+async fn correct_entry(req: &mut Request, env: &Env, id: &str) -> Result<Response> {
+    let Some(user) = current_user(req, env).await? else {
+        return Ok(err(401, "Sign in to continue"));
+    };
+    #[derive(Deserialize)]
+    struct Body {
+        prompt: String,
+    }
+    let body: Body = match req.json().await {
+        Ok(v) => v,
+        Err(_) => return Ok(err(400, "Invalid correction")),
+    };
+    let prompt = body.prompt.trim().to_string();
+    if prompt.len() < 2 || prompt.len() > 500 {
+        return Ok(err(400, "Tell me what to change, in a few words"));
+    }
+    let db = env.d1("DB")?;
+    let entry: Option<DiaryEntry> = one(
+        &db,
+        "SELECT id, log_date, meal, food_id, name, grams, kcal, protein, carbs, fat, scan_id, scan_item
+         FROM diary_entries WHERE id=?1 AND user_id=?2",
+        vec![js(id), js(&user.id)],
+    )
+    .await?;
+    let Some(entry) = entry else {
+        return Ok(err(404, "Entry not found"));
+    };
+    if entry.food_id.is_some() {
+        return Ok(err(400, "Use the portion field for catalog foods"));
+    }
+    let previous = ScanResult {
+        scan_id: entry.scan_id.clone(),
+        name: entry.name.clone(),
+        description: String::new(),
+        items: vec![ScanItem {
+            name: entry.name.clone(),
+            grams: entry.grams,
+            kcal: entry.kcal,
+            protein: entry.protein,
+            carbs: entry.carbs,
+            fat: entry.fat,
+        }],
+        confidence: 1.0,
+    };
+    let Some((key, model)) = gemini_key(env) else {
+        return Ok(err(503, "Scanning is not configured"));
+    };
+    let correction = correct_items(&key, &model, &previous, &prompt).await?;
+    if !correction.valid {
+        return json(
+            &RefineResponse {
+                valid: false,
+                reason: correction.reason,
+                result: previous,
+            },
+            200,
+        );
+    }
+    let item = correction.items.into_iter().next().unwrap_or_else(|| previous.items[0].clone());
+    exec(
+        &db,
+        "UPDATE diary_entries SET grams=?1, kcal=?2, protein=?3, carbs=?4, fat=?5 WHERE id=?6",
+        vec![
+            jn(item.grams),
+            jn(item.kcal),
+            jn(item.protein),
+            jn(item.carbs),
+            jn(item.fat),
+            js(id),
+        ],
+    )
+    .await?;
+    if let (Some(scan_id), Some(idx)) = (entry.scan_id.clone(), entry.scan_item) {
+        #[derive(Deserialize)]
+        struct ScanRow {
+            items_json: String,
+        }
+        let row: Option<ScanRow> = one(
+            &db,
+            "SELECT items_json FROM scans WHERE id=?1 AND user_id=?2",
+            vec![js(&scan_id), js(&user.id)],
+        )
+        .await?;
+        if let Some(row) = row {
+            let mut items: Vec<ScanItem> = serde_json::from_str(&row.items_json).unwrap_or_default();
+            if let Some(slot) = items.get_mut(idx.max(0) as usize) {
+                *slot = item.clone();
+                let total: f64 = items.iter().map(|i| i.kcal).sum();
+                let items_json = serde_json::to_string(&items).unwrap_or_else(|_| "[]".into());
+                let _ = exec(
+                    &db,
+                    "UPDATE scans SET items_json=?1, kcal=?2 WHERE id=?3 AND user_id=?4",
+                    vec![js(&items_json), jn(round1(total)), js(&scan_id), js(&user.id)],
+                )
+                .await;
+            }
+        }
+    }
+    let updated = DiaryEntry {
+        grams: item.grams,
+        kcal: item.kcal,
+        protein: item.protein,
+        carbs: item.carbs,
+        fat: item.fat,
+        ..entry
+    };
+    json(
+        &RefineResponse {
+            valid: true,
+            reason: if correction.reason.is_empty() {
+                "Updated".into()
+            } else {
+                correction.reason
+            },
+            result: ScanResult {
+                scan_id: updated.scan_id.clone(),
+                name: updated.name.clone(),
+                description: "Updated from diary".into(),
+                items: vec![item],
+                confidence: correction.confidence,
+            },
+        },
+        200,
+    )
 }
 
 async fn delete_entry(req: &Request, env: &Env, id: &str) -> Result<Response> {
@@ -1008,63 +1157,29 @@ async fn scan_image(req: &Request, env: &Env, id: &str) -> Result<Response> {
     Ok(res)
 }
 
-async fn refine_scan(req: &mut Request, env: &Env) -> Result<Response> {
-    let Some(user) = current_user(req, env).await? else {
-        return Ok(err(401, "Sign in to continue"));
-    };
-    let input: RefineInput = match req.json().await {
-        Ok(v) => v,
-        Err(_) => return Ok(err(400, "Invalid correction")),
-    };
-    let prompt = input.prompt.trim().to_string();
-    if prompt.len() < 2 || prompt.len() > 500 {
-        return Ok(err(400, "Tell me what to change, in a few words"));
-    }
-    let db = env.d1("DB")?;
-    let mut previous: ScanResult;
-    let mut scan_id: Option<String> = None;
-    if let Some(id) = input.scan_id.as_deref() {
-        #[derive(Deserialize)]
-        struct Row {
-            name: String,
-            description: String,
-            confidence: f64,
-            items_json: String,
-        }
-        let row: Option<Row> = one(
-            &db,
-            "SELECT name, description, confidence, items_json FROM scans WHERE id=?1 AND user_id=?2",
-            vec![js(id), js(&user.id)],
-        )
-        .await?;
-        let Some(row) = row else {
-            return Ok(err(404, "Scan not found"));
-        };
-        let items: Vec<ScanItem> = serde_json::from_str(&row.items_json).unwrap_or_default();
-        previous = ScanResult {
-            scan_id: Some(id.to_string()),
-            name: row.name,
-            description: row.description,
-            items,
-            confidence: row.confidence,
-        };
-        scan_id = Some(id.to_string());
-    } else if let Some(result) = input.result {
-        previous = result;
-    } else {
-        return Ok(err(400, "Scan result missing"));
-    }
-    if previous.items.is_empty() {
-        return Ok(err(400, "Nothing to correct"));
-    }
-    let Ok(key) = env.secret("GEMINI_API_KEY") else {
-        return Ok(err(503, "Scanning is not configured"));
-    };
+struct Correction {
+    valid: bool,
+    reason: String,
+    items: Vec<ScanItem>,
+    confidence: f64,
+}
+
+fn gemini_key(env: &Env) -> Option<(String, String)> {
+    let key = env.secret("GEMINI_API_KEY").ok()?;
     let model = if var_str(env, "GEMINI_MODEL").is_empty() {
         "gemini-2.5-flash".to_string()
     } else {
         var_str(env, "GEMINI_MODEL")
     };
+    Some((key.to_string(), model))
+}
+
+async fn correct_items(
+    key: &str,
+    model: &str,
+    previous: &ScanResult,
+    prompt: &str,
+) -> Result<Correction> {
     let previous_json = serde_json::to_string(&previous.items).unwrap_or_else(|_| "[]".into());
     let schema = json!({
         "type": "OBJECT",
@@ -1115,18 +1230,16 @@ async fn refine_scan(req: &mut Request, env: &Env) -> Result<Response> {
     let mut items: Vec<ScanItem> = serde_json::from_value(parsed["items"].clone()).unwrap_or_default();
     let confidence = parsed["confidence"].as_f64().unwrap_or(previous.confidence).clamp(0.0, 1.0);
     if !valid || items.len() != previous.items.len() || items.is_empty() {
-        return json(
-            &RefineResponse {
-                valid: false,
-                reason: if reason.is_empty() {
-                    "That doesn't look like a portion correction.".into()
-                } else {
-                    reason
-                },
-                result: previous,
+        return Ok(Correction {
+            valid: false,
+            reason: if reason.is_empty() {
+                "That doesn't look like a portion correction.".into()
+            } else {
+                reason
             },
-            200,
-        );
+            items: previous.items.clone(),
+            confidence: previous.confidence,
+        });
     }
     for (idx, item) in items.iter_mut().enumerate() {
         // Keep the original dish identity; Gemini only adjusts quantities.
@@ -1139,32 +1252,102 @@ async fn refine_scan(req: &mut Request, env: &Env) -> Result<Response> {
     }
     let total: f64 = items.iter().map(|i| i.kcal).sum();
     if total <= 0.0 || total > 20000.0 {
+        return Ok(Correction {
+            valid: false,
+            reason: "That correction gives an invalid calorie count.".into(),
+            items: previous.items.clone(),
+            confidence: previous.confidence,
+        });
+    }
+    Ok(Correction { valid: true, reason, items, confidence })
+}
+
+async fn refine_scan(req: &mut Request, env: &Env) -> Result<Response> {
+    let Some(user) = current_user(req, env).await? else {
+        return Ok(err(401, "Sign in to continue"));
+    };
+    let input: RefineInput = match req.json().await {
+        Ok(v) => v,
+        Err(_) => return Ok(err(400, "Invalid correction")),
+    };
+    let prompt = input.prompt.trim().to_string();
+    if prompt.len() < 2 || prompt.len() > 500 {
+        return Ok(err(400, "Tell me what to change, in a few words"));
+    }
+    let db = env.d1("DB")?;
+    let previous: ScanResult;
+    let mut scan_id: Option<String> = None;
+    if let Some(id) = input.scan_id.as_deref() {
+        #[derive(Deserialize)]
+        struct Row {
+            name: String,
+            description: String,
+            confidence: f64,
+            items_json: String,
+        }
+        let row: Option<Row> = one(
+            &db,
+            "SELECT name, description, confidence, items_json FROM scans WHERE id=?1 AND user_id=?2",
+            vec![js(id), js(&user.id)],
+        )
+        .await?;
+        let Some(row) = row else {
+            return Ok(err(404, "Scan not found"));
+        };
+        let items: Vec<ScanItem> = serde_json::from_str(&row.items_json).unwrap_or_default();
+        previous = ScanResult {
+            scan_id: Some(id.to_string()),
+            name: row.name,
+            description: row.description,
+            items,
+            confidence: row.confidence,
+        };
+        scan_id = Some(id.to_string());
+    } else if let Some(result) = input.result {
+        previous = result;
+    } else {
+        return Ok(err(400, "Scan result missing"));
+    }
+    if previous.items.is_empty() {
+        return Ok(err(400, "Nothing to correct"));
+    }
+    let Some((key, model)) = gemini_key(env) else {
+        return Ok(err(503, "Scanning is not configured"));
+    };
+    let correction = correct_items(&key, &model, &previous, &prompt).await?;
+    if !correction.valid {
         return json(
             &RefineResponse {
                 valid: false,
-                reason: "That correction gives an invalid calorie count.".into(),
+                reason: correction.reason,
                 result: previous,
             },
             200,
         );
     }
-    previous.items = items;
-    previous.confidence = confidence;
-    previous.scan_id = scan_id.clone();
+    let mut result = previous;
+    result.items = correction.items;
+    result.confidence = correction.confidence;
+    result.scan_id = scan_id.clone();
     if let Some(id) = scan_id.as_deref() {
-        let items_json = serde_json::to_string(&previous.items).unwrap_or_else(|_| "[]".into());
+        let total: f64 = result.items.iter().map(|i| i.kcal).sum();
+        let items_json = serde_json::to_string(&result.items).unwrap_or_else(|_| "[]".into());
         let _ = exec(
             &db,
             "UPDATE scans SET items_json=?1, kcal=?2, confidence=?3 WHERE id=?4 AND user_id=?5",
-            vec![js(&items_json), jn(round1(total)), jn(confidence), js(id), js(&user.id)],
+            vec![js(&items_json), jn(round1(total)), jn(correction.confidence), js(id), js(&user.id)],
         )
         .await;
     }
     json(
         &RefineResponse {
             valid: true,
-            reason: if reason.is_empty() { "Updated".into() } else { reason },
-            result: previous,
+            reason: if correction.reason.is_empty() {
+                "Updated".into()
+            } else {
+                correction.reason
+            },
+            result,
         },
         200,
     )

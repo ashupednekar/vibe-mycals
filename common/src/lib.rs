@@ -89,6 +89,10 @@ pub struct DiaryEntry {
     pub protein: f64,
     pub carbs: f64,
     pub fat: f64,
+    #[serde(default)]
+    pub scan_id: Option<String>,
+    #[serde(default)]
+    pub scan_item: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -242,6 +246,10 @@ pub struct EntryInput {
     pub carbs: f64,
     #[serde(default)]
     pub fat: f64,
+    #[serde(default)]
+    pub scan_id: Option<String>,
+    #[serde(default)]
+    pub scan_item: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
