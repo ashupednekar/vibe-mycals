@@ -1023,7 +1023,7 @@ function ScanPhotoSheet({
   scan: StoredScan;
   token: string;
   onClose: () => void;
-  onUse: (scan: StoredScan) => void;
+  onUse?: (scan: StoredScan) => void;
 }) {
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
@@ -1066,7 +1066,7 @@ function ScanPhotoSheet({
               </View>
             ))}
           </View>
-          <Btn label="Use this scan" onPress={() => onUse(scan)} />
+          {onUse && <Btn label="Use this scan" onPress={() => onUse(scan)} />}
           <Btn label="Close" onPress={onClose} variant="outline" />
         </ScrollView>
       </SafeAreaView>
@@ -1557,14 +1557,32 @@ function MemberSheet({
   member: Member;
   onClose: () => void;
 }) {
+  const [date, setDate] = useState(todayStr());
   const [day, setDay] = useState<MemberDay | null>(null);
+  const [scans, setScans] = useState<StoredScan[]>([]);
+  const [photoScan, setPhotoScan] = useState<StoredScan | null>(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setError("");
+      const [d, s] = await Promise.all([
+        request<MemberDay>(`/api/family/members/${member.id}/diary?date=${date}`, token),
+        request<StoredScan[]>(`/api/family/members/${member.id}/scans`, token),
+      ]);
+      setDay(d);
+      setScans(s);
+    } catch (e) {
+      setError(msg(e));
+    }
+    setLoading(false);
+  }, [member.id, date, token]);
 
   useEffect(() => {
-    request<MemberDay>(`/api/family/members/${member.id}/diary?date=${todayStr()}`, token)
-      .then(setDay)
-      .catch((e) => setError(msg(e)));
-  }, [member.id, token]);
+    load();
+  }, [load]);
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -1574,11 +1592,25 @@ function MemberSheet({
             <View>
               <Text style={s.eyebrow}>Family diary</Text>
               <Text style={s.h2}>
-                {member.name} · {prettyDate(todayStr())}
+                {member.name} · {prettyDate(date)}
               </Text>
             </View>
             <Pressable onPress={onClose} style={s.closeBtn}>
               <Text style={{ fontSize: fs(22), color: C.muted }}>×</Text>
+            </Pressable>
+          </View>
+          <View style={[s.dateNav, { alignSelf: "flex-start" }]}>
+            <Pressable onPress={() => setDate(shiftDate(date, -1))} style={s.chev}>
+              <Text style={s.chevText}>‹</Text>
+            </Pressable>
+            <Pressable onPress={() => setDate(todayStr())} style={s.todayBtn}>
+              <Text style={s.todayBtnText}>Today</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => date < todayStr() && setDate(shiftDate(date, 1))}
+              style={[s.chev, date >= todayStr() && { opacity: 0.35 }]}
+            >
+              <Text style={s.chevText}>›</Text>
             </Pressable>
           </View>
           <Banner text={error} />
@@ -1613,11 +1645,46 @@ function MemberSheet({
                   ))
                 )}
               </View>
+              {scans.length > 0 && (
+                <View style={{ gap: 10 }}>
+                  <Text style={s.cardTitle}>Scans</Text>
+                  <Text style={s.tiny}>Tap a scan to see the photo and items.</Text>
+                  {scans.map((h) => (
+                    <Pressable
+                      key={h.id}
+                      style={[s.card, { flexDirection: "row", alignItems: "center", gap: 10, padding: 10 }]}
+                      onPress={() => setPhotoScan(h)}
+                    >
+                      {h.image_url ? (
+                        <Image
+                          source={{
+                            uri: `${API}${h.image_url}`,
+                            headers: { authorization: `Bearer ${token}` },
+                          }}
+                          style={{ width: 58, height: 58, borderRadius: 12 }}
+                        />
+                      ) : (
+                        <View style={{ width: 58, height: 58, borderRadius: 12, backgroundColor: C.line }} />
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.entryName} numberOfLines={1}>{h.name}</Text>
+                        <Text style={s.mutedSmall} numberOfLines={2}>{h.description}</Text>
+                        <Text style={s.mutedSmall}>
+                          {Math.round(h.kcal)} kcal · {h.created_at.slice(0, 10)}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </>
-          ) : (
+          ) : loading ? (
             <ActivityIndicator color={C.green} />
-          )}
+          ) : null}
         </ScrollView>
+        {photoScan && (
+          <ScanPhotoSheet scan={photoScan} token={token} onClose={() => setPhotoScan(null)} />
+        )}
       </SafeAreaView>
     </Modal>
   );

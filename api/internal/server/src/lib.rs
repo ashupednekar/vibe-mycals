@@ -107,6 +107,14 @@ async fn dispatch(mut req: Request, env: Env) -> Result<Response> {
             .to_string();
         return member_diary(&req, &env, &id).await;
     }
+    if method == "GET" && path.starts_with("/api/family/members/") && path.ends_with("/scans") {
+        let id = path
+            .trim_start_matches("/api/family/members/")
+            .trim_end_matches("scans")
+            .trim_end_matches('/')
+            .to_string();
+        return member_scans(&req, &env, &id).await;
+    }
 
     Ok(err(404, "Not found"))
 }
@@ -861,6 +869,11 @@ async fn list_scans(req: &Request, env: &Env) -> Result<Response> {
         return Ok(err(401, "Sign in to continue"));
     };
     let db = env.d1("DB")?;
+    let scans = scans_for(&db, &user.id).await?;
+    json(&scans, 200)
+}
+
+async fn scans_for(db: &D1Database, user_id: &str) -> Result<Vec<StoredScan>> {
     #[derive(Deserialize)]
     struct Row {
         id: String,
@@ -873,13 +886,13 @@ async fn list_scans(req: &Request, env: &Env) -> Result<Response> {
         created_at: String,
     }
     let rows: Vec<Row> = all(
-        &db,
+        db,
         "SELECT id, name, description, confidence, items_json, kcal, image_key, created_at
          FROM scans WHERE user_id=?1 ORDER BY created_at DESC, rowid DESC LIMIT 30",
-        vec![js(&user.id)],
+        vec![js(user_id)],
     )
     .await?;
-    let scans: Vec<StoredScan> = rows
+    Ok(rows
         .into_iter()
         .filter_map(|r| {
             let items: Vec<ScanItem> = serde_json::from_str(&r.items_json).ok()?;
@@ -895,7 +908,27 @@ async fn list_scans(req: &Request, env: &Env) -> Result<Response> {
                 created_at: r.created_at,
             })
         })
-        .collect();
+        .collect())
+}
+
+async fn member_scans(req: &Request, env: &Env, id: &str) -> Result<Response> {
+    let Some(user) = current_user(req, env).await? else {
+        return Ok(err(401, "Sign in to continue"));
+    };
+    let db = env.d1("DB")?;
+    let target: Option<User> = one(&db, "SELECT * FROM users WHERE id=?1", vec![js(id)]).await?;
+    let Some(target) = target else {
+        return Ok(err(404, "Member not found"));
+    };
+    let same_family = target.id == user.id
+        || (user.household_id.is_some() && user.household_id == target.household_id);
+    if !same_family {
+        return Ok(err(403, "That person isn't in your family"));
+    }
+    if target.id != user.id && !target.share_diary {
+        return Ok(err(403, "This member keeps their diary private"));
+    }
+    let scans = scans_for(&db, &target.id).await?;
     json(&scans, 200)
 }
 
@@ -935,16 +968,26 @@ async fn scan_image(req: &Request, env: &Env, id: &str) -> Result<Response> {
     struct Row {
         image_key: Option<String>,
         image_mime: Option<String>,
+        owner_id: String,
+        household_id: Option<String>,
+        share_diary: i64,
     }
     let row: Option<Row> = one(
         &db,
-        "SELECT image_key, image_mime FROM scans WHERE id=?1 AND user_id=?2",
-        vec![js(id), js(&user.id)],
+        "SELECT s.image_key, s.image_mime, s.user_id AS owner_id, u.household_id, u.share_diary
+         FROM scans s JOIN users u ON u.id = s.user_id WHERE s.id=?1",
+        vec![js(id)],
     )
     .await?;
     let Some(row) = row else {
         return Ok(err(404, "Scan not found"));
     };
+    let family_visible = user.household_id.is_some()
+        && user.household_id == row.household_id
+        && row.share_diary != 0;
+    if row.owner_id != user.id && !family_visible {
+        return Ok(err(404, "Scan not found"));
+    }
     let Some(key) = row.image_key else {
         return Ok(err(404, "No image for this scan"));
     };
